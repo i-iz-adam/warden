@@ -72,14 +72,33 @@ jobs:
           prerelease: false
       
       - name: Upload Release Assets
-        run: |
-          $artifacts = Get-ChildItem -Path artifacts -Recurse -File
-          foreach ($file in $artifacts) {
-            gh release upload "v1.0.0+build.${{ github.run_number }}" "$file" --clobber
-          }
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const { repo, owner } = context.repo;
+            const tag = `v1.0.0+build.${context.runNumber}`;
+            
+            // List all artifacts
+            const artifactsDir = path.join(process.env.GITHUB_WORKSPACE, 'artifacts');
+            const files = fs.readdirSync(artifactsDir, { recursive: true })
+              .filter(file => fs.statSync(path.join(artifactsDir, file)).isFile())
+              .map(file => path.join(artifactsDir, file));
+            
+            // Upload each file to the release
+            for (const file of files) {
+              const fileData = fs.readFileSync(file);
+              const fileName = path.basename(file);
+              
+              await github.rest.repos.uploadReleaseAsset({
+                owner,
+                repo,
+                release_id: (await github.rest.repos.getReleaseByTag({ owner, repo, tag })).data.id,
+                name: fileName,
+                data: fileData
+              });
+            }
 
   update:
     needs: release
