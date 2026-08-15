@@ -24,3 +24,7 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+#AI Agents
+.codegraph/
+docs/superpowers/
