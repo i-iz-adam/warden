@@ -1,0 +1,107 @@
+# Warden Release Workflow
+
+name: Release
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller pyupdater
+      
+      - name: Build binaries
+        run: python scripts/build.py
+      
+      - name: Package archives
+        run: |
+          $version = "${{ github.run_number }}"
+          if ("${{ matrix.os }}" -eq "windows-latest") {
+            Compress-Archive -Path dist/Warden.exe -DestinationPath Warden-windows-v$version.zip
+          } elseif ("${{ matrix.os }}" -eq "macos-latest") {
+            tar -czvf Warden-macos-v$version.tar.gz -C dist Warden.app
+          } elseif ("${{ matrix.os }}" -eq "ubuntu-latest") {
+            tar -czvf Warden-linux-v$version.tar.gz -C dist Warden
+          }
+        shell: pwsh
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-artifacts
+          path: |
+            dist/
+            Warden-*.zip
+            Warden-*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v1.0.0+build.${{ github.run_number }}
+          release_name: Warden v1.0.0+build.${{ github.run_number }}
+          draft: false
+          prerelease: false
+      
+      - name: Upload Release Assets
+        run: |
+          $artifacts = Get-ChildItem -Path artifacts -Recurse -File
+          foreach ($file in $artifacts) {
+            gh release upload "v1.0.0+build.${{ github.run_number }}" "$file" --clobber
+          }
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      
+      - name: Generate versions.json
+        run: |
+          pip install pyupdater
+          python scripts/update_manifest.py
+        env:
+          WARDEN_VERSION: 1.0.0+build.${{ github.run_number }}
+      
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          keep_files: true
