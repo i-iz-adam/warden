@@ -1,0 +1,30 @@
+# The central API server lives in its own repo (warden-server) --
+# see bootstrap-repos.bat. Never let it get committed into the
+# desktop app repo (warden) from root.
+/server/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Build/dist output
+/dist/
+/build/
+
+# Local runtime/data
+/data/
+*.db
+*.log
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+#AI Agents
+.codegraph/
+docs/superpowers/

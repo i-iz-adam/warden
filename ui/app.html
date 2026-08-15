@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WARDEN — SpawnPK Companion</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="loadbar"></div>
+
+<!-- ============ SPLASH ============ -->
+<div id="splash">
+  <div class="splash-mark">
+    <svg viewBox="0 0 100 100">
+      <polygon class="hex" points="50,4 90,27 90,73 50,96 10,73 10,27"/>
+      <polygon class="hex-draw" points="50,4 90,27 90,73 50,96 10,73 10,27"/>
+      <line class="crossbar" x1="30" y1="50" x2="70" y2="50"/>
+      <line class="crossbar" x1="50" y1="30" x2="50" y2="70"/>
+      <circle class="core" cx="50" cy="50" r="5"/>
+    </svg>
+  </div>
+  <div class="splash-word">
+    <span style="animation-delay:.05s">W</span><span style="animation-delay:.1s">A</span><span style="animation-delay:.15s">R</span><span style="animation-delay:.2s">D</span><span style="animation-delay:.25s">E</span><span class="accent" style="animation-delay:.3s">N</span>
+  </div>
+  <div class="splash-sub">SpawnPK Companion</div>
+  <div class="splash-bar-wrap">
+    <div class="splash-bar"><i id="splashProgress"></i></div>
+    <div class="splash-status" id="splashStatus">Initializing…</div>
+    <div class="splash-detail" id="splashDetail">Preparing Warden runtime</div>
+  </div>
+</div>
+
+<!-- ============ WIZARD ============ -->
+<div id="wizard">
+  <div class="wiz-card">
+    <div class="wiz-head">
+      <div class="wiz-steps"><i class="active" data-s="1"></i><i data-s="2"></i><i data-s="3"></i></div>
+      <h2 id="wizTitle">Welcome to Warden</h2>
+      <p id="wizSub">Your companion tool for SpawnPK — track drops, PK timers, and market sales in real time.</p>
+    </div>
+    <div class="wiz-body">
+      <div class="wiz-step active" data-step="1">
+        <div class="welcome-mark">
+          <svg viewBox="0 0 100 100" width="52" height="52">
+            <polygon points="50,4 90,27 90,73 50,96 10,73 10,27" fill="none" stroke="#242832" stroke-width="2"/>
+            <polygon points="50,4 90,27 90,73 50,96 10,73 10,27" fill="none" stroke="#d1293d" stroke-width="2" stroke-dasharray="20 250" stroke-linecap="round"/>
+            <circle cx="50" cy="50" r="5" fill="#d1293d"/>
+          </svg>
+        </div>
+        <p style="font-size:11.5px;color:var(--steel);line-height:1.7;">Warden watches your game chat for drops, boss kills, PK timers and market sales — then alerts you and syncs to the shared feed. Setup takes under a minute.</p>
+      </div>
+      <div class="wiz-step" data-step="2">
+        <div class="field"><label>Primary In-Game Username</label><input type="text" id="wizUsername" placeholder="e.g. Ruthless99" autocomplete="off"><div class="hint">This is the account Warden treats as "you" — used to match your drops and market sales.</div></div>
+        <div class="field"><label>Discord Webhook <span style="color:var(--steel-dim)">(optional)</span></label><input type="url" id="wizWebhook" placeholder="https://discord.com/api/webhooks/…"><div class="hint">Forward rare drops and PK alerts to a Discord channel. Can be added later in Settings.</div></div>
+      </div>
+      <div class="wiz-step" data-step="3">
+        <div class="field"><label>Accent Theme</label>
+          <div class="swatches">
+            <div class="swatch selected" style="background:#d1293d" data-c="#d1293d" data-g="rgba(209,41,61,0.45)"></div>
+            <div class="swatch" style="background:#a56bff" data-c="#a56bff" data-g="rgba(165,107,255,0.45)"></div>
+            <div class="swatch" style="background:#4d9dff" data-c="#4d9dff" data-g="rgba(77,157,255,0.45)"></div>
+            <div class="swatch" style="background:#e8a33d" data-c="#e8a33d" data-g="rgba(232,163,61,0.45)"></div>
+            <div class="swatch" style="background:#5fd068" data-c="#5fd068" data-g="rgba(95,208,104,0.45)"></div>
+          </div>
+        </div>
+        <div class="opt-row"><div><div class="t">Sound Alerts</div><div class="d">Play a sound when rare or custom drops occur</div></div><div class="switch on" data-opt="sound"><i></i></div></div>
+        <div class="opt-row"><div><div class="t">Minimum Alert Value</div><div class="d">Suppress alerts under this drop value</div></div><input type="number" value="5" style="width:70px;background:var(--panel-2);border:1px solid var(--line);color:var(--white);font-family:inherit;padding:6px 8px;font-size:11px;"></div>
+      </div>
+    </div>
+    <div class="wiz-foot"><button class="btn ghost" id="wizBack">Back</button><button class="btn primary" id="wizNext">Get Started</button></div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app">
+<div class="app">
+
+  <div class="topbar pywebview-drag-region">
+    <div class="brand" data-page="dashboard">
+      <div class="mark"><svg viewBox="0 0 40 40"><circle class="ring" cx="20" cy="20" r="17" fill="none" stroke="#242832" stroke-width="1.5"/><circle class="ring" cx="20" cy="20" r="17" fill="none" stroke="var(--blood)" stroke-width="1.5" stroke-dasharray="20 90" stroke-linecap="round"/><path d="M20 10 L27 22 L20 30 L13 22 Z" fill="none" stroke="#eef0f4" stroke-width="1.4"/><circle cx="20" cy="20" r="2.2" fill="var(--blood)"/></svg></div>
+      <div class="brand-text"><h1>WARD<span>EN</span></h1><div class="tag">SpawnPK Companion</div></div>
+    </div>
+    <div class="top-mid"><div class="pill"><span class="dot"></span> Chat Watcher Active</div><div class="pill" id="apiSyncPill"><span class="dot" id="apiSyncDot"></span> <span id="apiSyncLabel">API Offline</span></div></div>
+    <div class="user-chip" data-page="profile"><div class="av" id="userAv">?</div><span id="userName">—</span></div>
+    <div class="clock"><span class="dot"></span><span id="clockTxt">00:00:00</span></div>
+    <div class="winctl"><div id="winMin" title="Minimize">–</div><div id="winMax" title="Maximize">▢</div><div id="winClose" title="Close">×</div></div>
+  </div>
+
+  <div class="sidebar" id="sidebar">
+    <div class="nav-item active" data-page="dashboard"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Dashboard</div>
+    <div class="nav-item" data-page="profile"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/></svg>Profile <span class="sub">Watchlist</span></div>
+    <div class="nav-item" data-page="market"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17l5-5 4 4 8-8"/><path d="M14 8h6v6"/></svg>Market <span class="sub">Prices & Sales</span></div>
+    <div class="nav-divider"></div>
+    <div class="nav-item" data-page="timers"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>PK Timers <span class="sub">Numpad</span></div>
+    <div class="nav-item" data-page="drops"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2 L4 14 h16 Z M12 22 v-8"/></svg>Drops <span class="sub">Live Feed</span></div>
+    <div class="nav-item" data-page="events"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2l2.5 6.5L21 9l-5 4.2L17.5 21 12 17l-5.5 4L8 13.2 3 9l6.5-.5z"/></svg>Events <span class="sub">World & More</span></div>
+    <div class="nav-item" data-page="bosses"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"/></svg>Boss Levels <span class="sub">Manual</span></div>
+    <div class="nav-item" data-page="items"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="18" height="14" rx="1"/><path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Custom Items</div>
+    <div class="nav-item" data-page="source"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="2.5"/><path d="M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Live Source <span class="sub">API / Discord</span></div>
+    <div class="nav-item" data-page="debug"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h.01M15 9h.01M8 15c1 1.2 2.3 1.8 4 1.8s3-.6 4-1.8"/></svg>Debug <span class="sub">Tools & Logs</span></div>
+    <div class="nav-item" data-page="settings"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2.1-1.2L14 3h-4l-.4 2.6a7 7 0 00-2.1 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 005 12"/></svg>Settings <span class="sub">General</span></div>
+    <div class="side-foot"><div class="status"><span class="dot" style="background:var(--toxic);box-shadow:0 0 8px var(--toxic);"></span>RUNNING</div><div class="meta">UPTIME 00:12:47<br>SpawnPK · Warden 3.0</div></div>
+  </div>
+
+  <div class="main" id="main">
+
+    <!-- DASHBOARD -->
+    <div class="page active" data-page="dashboard">
+      <div class="kpi-row">
+        <div class="kpi c-blood"><div class="label">Total Drops</div><div class="val" data-count="128">0</div><div class="sub">Today</div><div class="spark" style="color:var(--blood)"></div></div>
+        <div class="kpi c-amber"><div class="label">Alerts Fired</div><div class="val" data-count="17">0</div><div class="sub">Today</div><div class="spark" style="color:var(--amber)"></div></div>
+        <div class="kpi c-purple"><div class="label">Rare Drops</div><div class="val" data-count="6">0</div><div class="sub">Today</div><div class="spark" style="color:var(--purple)"></div></div>
+        <div class="kpi c-blue"><div class="label">Market Sales</div><div class="val" data-count="9">0</div><div class="sub">Today</div><div class="spark" style="color:var(--blue)"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2><span class="dot"></span>Live Feed</h2><button id="clearBtn">Clear</button></div>
+        <div class="feed" id="feed">
+          <div class="feed-item t-rare new"><div class="time">15:46:21</div><div><div class="type">Rare Drop</div><div class="desc"><b>Abra Kadabra</b> received <span class="item-name">Cursed blood orb</span> from the event exchange</div><div class="val">VALUE 30M</div></div><div class="src">Event Exchange</div></div>
+          <div class="feed-item t-rare"><div class="time">15:45:10</div><div><div class="type">Rare Drop</div><div class="desc"><b>M1llionz</b> received <span class="item-name">Dragon claws</span> from Cerberus</div><div class="val">VALUE 50M</div></div><div class="src">Cerberus · Lvl 91</div></div>
+          <div class="feed-item t-boss"><div class="time">15:43:02</div><div><div class="type">Boss Drop</div><div class="desc"><b>I Pk U Mom</b> received <span class="item-name">Elder blood orb</span> from Venenatis</div><div class="val">VALUE 12M</div></div><div class="src">Venenatis · Lvl 50</div></div>
+          <div class="feed-item t-custom"><div class="time">15:41:55</div><div><div class="type">Custom Item</div><div class="desc"><b>Pk Max Jr</b> received <span class="item-name">Shard of War</span> from a Harvest Chest</div><div class="val">VALUE 20M</div></div><div class="src">Harvest Chest</div></div>
+          <div class="feed-item t-event"><div class="time">15:38:11</div><div><div class="type">Event Start</div><div class="desc">A <span class="item-name">Solar Breach</span> will be opening up in 30 secs</div></div><div class="src">Global</div></div>
+        </div>
+      </div>
+      <div class="split">
+        <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Recent Drops</h2><button id="dashDropsViewAll">View All</button></div>
+          <table class="table"><thead><tr><th>Time</th><th>Player</th><th>Item</th><th>Value</th><th>Source</th></tr></thead><tbody id="dashDropsBody">
+            <tr><td colspan="5" style="color:var(--steel-dim);">Loading…</td></tr>
+          </tbody></table>
+        </div>
+        <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Events</h2></div>
+          <div class="event-row"><div class="switch on"><i></i></div><div class="name">Solar Breach</div><div class="lvl">≈45</div></div>
+          <div class="event-row"><div class="switch on"><i></i></div><div class="name">Superior</div><div class="lvl">≈30</div></div>
+          <div class="event-row"><div class="switch"><i></i></div><div class="name">Tournament</div><div class="lvl">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROFILE -->
+    <div class="page" data-page="profile">
+      <div class="page-title"><h1>Profile</h1><p>Your identity & watchlist of tracked players</p></div>
+      <div class="panel">
+        <div class="profile-hero">
+          <div class="big-av" id="profBigAv">?</div>
+          <div class="pinfo">
+            <div class="pname" id="pnameDisplay"><span id="pnameText">—</span><span class="edit-ico" id="pnameEditBtn">✎</span></div>
+            <div class="pname-edit" id="pnameEditRow"><input type="text" id="pnameInput"><button class="btn-sm primary" id="pnameSave">Save</button></div>
+            <div class="prole">Primary Account · Default Watch</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2><span class="dot"></span>Watchlist</h2><span style="font-size:9.5px;color:var(--steel-dim);">Click a name to filter the feed below</span></div>
+        <div class="chip-row" id="watchChips"></div>
+        <div class="add-row"><input type="text" id="newWatchInput" placeholder="Add username to watch…"><button class="btn-sm primary" id="addWatchBtn">Add</button></div>
+      </div>
+      <div class="panel">
+        <div class="watch-stats" id="watchStats">
+          <div class="wstat"><div class="n" data-w="drops">—</div><div class="l">Drops</div></div>
+          <div class="wstat"><div class="n" data-w="raids">—</div><div class="l">Raid Drops</div></div>
+          <div class="wstat"><div class="n" data-w="sales">—</div><div class="l">Market Sales</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2><span class="dot"></span>Current Market Listings</h2><span style="font-size:9.5px;color:var(--steel-dim);">Live, grouped by account</span></div>
+        <div id="profileListings" class="listings-by-account"><div style="padding:12px 16px;color:var(--steel-dim);font-size:11px;">No listings seen yet.</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2><span class="dot"></span><span id="feedFilterLabel">All Watched Players</span></h2></div>
+        <div class="feed" id="profileFeed" style="max-height:300px;"></div>
+      </div>
+    </div>
+
+    <!-- MARKET -->
+    <div class="page" data-page="market">
+      <div class="page-title"><h1>Market</h1><p>Item prices & crowd-sourced sale history</p></div>
+      <div class="market-layout">
+        <div class="panel item-list-panel">
+          <div class="item-search"><input type="text" id="itemSearch" placeholder="Search items…"></div>
+          <div class="item-list" id="itemList"></div>
+        </div>
+        <div class="panel item-detail">
+          <div class="item-detail-head">
+            <div class="di" id="detIcon">?</div>
+            <div><div class="dtitle" id="detName">Select an item</div><div class="dcat" id="detCat">—</div></div>
+            <div class="dprice"><div class="p" id="detPrice">—</div><div class="d" id="detDelta"></div></div>
+          </div>
+          <div class="tf-toggle" id="tfToggle">
+            <div class="tf-chip active" data-tf="1D">1D</div>
+            <div class="tf-chip" data-tf="7D">7D</div>
+            <div class="tf-chip" data-tf="30D">30D</div>
+            <div class="tf-chip" data-tf="ALL">All</div>
+          </div>
+          <div class="chart-wrap"><svg id="chartSvg" viewBox="0 0 600 160" preserveAspectRatio="none"></svg></div>
+          <div class="panel-head" style="border-top:1px solid var(--line);"><h2><span class="dot"></span>Recent Sales</h2><span style="font-size:9px;color:var(--amber);letter-spacing:1px;">● HIGHLIGHTED = YOUR SALE</span></div>
+          <table class="table"><thead><tr><th>Time</th><th>Seller</th><th>Buyer</th><th>Qty</th><th>Price</th></tr></thead><tbody id="salesBody"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TIMERS -->
+    <div class="page" data-page="timers">
+      <div class="page-title"><h1>PK Timers</h1><p>Numpad-triggered cooldown & combat timers</p></div>
+      <div class="grid-3" id="timerGridFull"></div>
+    </div>
+
+    <!-- DROPS -->
+    <div class="page" data-page="drops">
+      <div class="page-title"><h1>Drops</h1><p>Full drop history across your tracked players</p></div>
+      <div class="panel">
+        <div class="form-grid" style="padding:14px 18px;grid-template-columns:1fr 1fr 1fr auto;">
+          <div class="field-inline"><label>Search Player</label><input type="text" id="dropsSearchInput" placeholder="Any player…"></div>
+          <div class="field-inline"><label>Source</label><select id="dropsSourceSelect"><option value="">All Sources</option></select></div>
+          <div class="field-inline"><label>Type</label><select id="dropsTypeSelect"><option value="">All Types</option><option value="drop">Drop</option><option value="raids_drop">Raid Drop</option></select></div>
+          <div style="display:flex;align-items:end;"><button class="btn-sm primary" id="dropsFilterBtn">Filter</button></div>
+        </div>
+        <table class="table"><thead><tr><th>Time</th><th>Player</th><th>Item</th><th>Value</th><th>Source</th></tr></thead>
+        <tbody id="dropsPageBody">
+          <tr><td colspan="5" style="color:var(--steel-dim);">Loading…</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+
+    <!-- EVENTS -->
+    <div class="page" data-page="events">
+      <div class="page-title"><h1>Events</h1><p>World event tracking & alert thresholds</p></div>
+      <div class="split">
+        <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Active & Scheduled</h2><button class="primary">Save Events</button></div>
+          <div class="event-row"><div class="switch on"><i></i></div><div class="name">Solar Breach</div><div class="lvl">≈45 · next 06:12</div></div>
+          <div class="event-row"><div class="switch on"><i></i></div><div class="name">Superior Slayer</div><div class="lvl">≈30 · roaming</div></div>
+          <div class="event-row"><div class="switch on"><i></i></div><div class="name">World Boss</div><div class="lvl">— · next 22:00</div></div>
+          <div class="event-row"><div class="switch"><i></i></div><div class="name">PvP Tournament</div><div class="lvl">— · Sat 8PM</div></div>
+        </div>
+        <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Next Up</h2></div>
+          <div class="timer-card" style="border:none;">
+            <div class="timer-ring"><svg width="64" height="64" viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="27" fill="none" stroke-width="4"/><circle class="fg" id="eventRing" cx="32" cy="32" r="27" fill="none" stroke-width="4" stroke-dasharray="169.6" stroke-dashoffset="40"/></svg><div class="label" id="eventRingTxt">06:12</div></div>
+            <div class="timer-info"><div class="n">Solar Breach</div><div class="d" style="font-size:9.5px;color:var(--steel-dim)">Approx level 45</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOSSES -->
+    <div class="page" data-page="bosses">
+      <div class="page-title"><h1>Boss Levels</h1><p>Manual wilderness level entries used for boss drop alerts</p></div>
+      <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Boss Registry</h2><div class="actions"><button>+ Add Boss</button><button>Edit</button><button>Remove</button></div></div>
+        <table class="table"><thead><tr><th>Boss Name</th><th>Wild Level</th><th>Last Kill</th></tr></thead><tbody>
+          <tr><td>Vet'ion</td><td class="c-amber">30</td><td>12m ago</td></tr>
+          <tr><td>Calisto</td><td class="c-amber">45</td><td>—</td></tr>
+          <tr><td>Venenatis</td><td class="c-amber">50</td><td>2m ago</td></tr>
+          <tr><td>Chaos Elemental</td><td class="c-amber">40</td><td>—</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+
+    <!-- ITEMS -->
+    <div class="page" data-page="items">
+      <div class="page-title"><h1>Custom Items</h1><p>SpawnPK-specific items Warden should always flag</p></div>
+      <div class="panel">
+        <div class="panel-head"><h2><span class="dot"></span>Tracked Items</h2><label style="display:flex;align-items:center;gap:8px;font-size:10px;color:var(--steel);"><div class="switch on"><i></i></div>Alert on match</label></div>
+        <div id="itemMgrList">
+          <div class="item-mgr-row"><span class="nm">Shard of War</span><span class="del">✕</span></div>
+          <div class="item-mgr-row"><span class="nm">Cursed blood orb</span><span class="del">✕</span></div>
+          <div class="item-mgr-row"><span class="nm">Dragon claws</span><span class="del">✕</span></div>
+        </div>
+        <div class="add-row"><input type="text" placeholder="Add item name (case-insensitive match)…" id="newItemInput"><button class="btn-sm primary" id="addItemBtn">Add</button></div>
+      </div>
+    </div>
+
+    <!-- SOURCE -->
+    <div class="page" data-page="source">
+      <div class="page-title"><h1>Live Source</h1><p>Where Warden gets its data from</p></div>
+      <div class="grid-3">
+        <div class="panel"><div class="status-card"><div class="status-orb"></div><div class="status-text"><div class="t">Chat Watcher</div><div class="d">Active · reading client chat</div></div></div></div>
+        <div class="panel"><div class="status-card"><div class="status-orb"></div><div class="status-text"><div class="t">Central API</div><div class="d">Connected · syncing events</div></div></div></div>
+        <div class="panel"><div class="status-card"><div class="status-orb off"></div><div class="status-text"><div class="t">Discord Webhook</div><div class="d">Not configured</div></div></div></div>
+      </div>
+      <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Connection Settings</h2><button class="primary" id="testConnBtn">Test Connection</button></div>
+        <div class="form-grid">
+          <div class="field-inline"><label>Central API Endpoint</label><input type="text" value="https://api.spawnpk-warden.gg"></div>
+          <div class="field-inline"><label>Poll Interval (ms)</label><input type="number" value="500"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DEBUG -->
+    <div class="page" data-page="debug">
+      <div class="page-title"><h1>Debug</h1><p>Raw event log & diagnostic tools</p></div>
+      <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Event Log</h2><div class="actions"><button>Export</button><button>Clear</button></div></div>
+        <div id="debugLog">
+          <div class="log-line lvl-ok"><span class="lt">15:46:21</span><span class="lv">MATCH</span><span class="msg">custom_item_match: "Cursed blood orb" → Abra Kadabra</span></div>
+          <div class="log-line lvl-info"><span class="lt">15:46:20</span><span class="lv">CHAT</span><span class="msg">chat_line captured, forwarded to parser</span></div>
+          <div class="log-line lvl-warn"><span class="lt">15:44:55</span><span class="lv">WARN</span><span class="msg">API sync latency 812ms — above threshold</span></div>
+          <div class="log-line lvl-error"><span class="lt">15:39:44</span><span class="lv">ERROR</span><span class="msg">central_api connection refused (timeout 5000ms)</span></div>
+        </div>
+      </div>
+      <div class="grid-4"><button class="btn-sm" style="padding:12px;">Reload Config</button><button class="btn-sm" style="padding:12px;">Rescan Client</button><button class="btn-sm" style="padding:12px;">Flush Cache</button><button class="btn-sm" style="padding:12px;">Copy Log</button></div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="page" data-page="settings">
+      <div class="page-title"><h1>Settings</h1><p>General preferences</p></div>
+      <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Profile</h2></div>
+        <div class="form-grid"><div class="field-inline"><label>Primary Username</label><input type="text" id="settingsUsername"></div><div class="field-inline"><label>Minimum Alert Value</label><input type="number" value="5"></div></div>
+      </div>
+      <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Appearance</h2></div>
+        <div class="theme-swatch-row" id="settingsSwatches">
+          <div class="swatch selected" style="background:#d1293d" data-c="#d1293d" data-g="rgba(209,41,61,0.45)"></div>
+          <div class="swatch" style="background:#a56bff" data-c="#a56bff" data-g="rgba(165,107,255,0.45)"></div>
+          <div class="swatch" style="background:#4d9dff" data-c="#4d9dff" data-g="rgba(77,157,255,0.45)"></div>
+          <div class="swatch" style="background:#e8a33d" data-c="#e8a33d" data-g="rgba(232,163,61,0.45)"></div>
+          <div class="swatch" style="background:#5fd068" data-c="#5fd068" data-g="rgba(95,208,104,0.45)"></div>
+        </div>
+      </div>
+      <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Alerts</h2></div>
+        <div class="event-row"><div class="switch on"><i></i></div><div class="name">Sound alerts</div></div>
+        <div class="event-row"><div class="switch on"><i></i></div><div class="name">Discord forwarding</div></div>
+        <div class="event-row"><div class="switch on"><i></i></div><div class="name">Launch on system startup</div></div>
+      </div>
+      <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Window Behavior</h2></div>
+        <div class="event-row"><div class="switch" id="closeBehaviorSwitch"><i></i></div><div class="name">Closing the window sends it to the background<div class="sub" style="margin-top:2px;">Off: the × button fully quits Warden. On: it hides to the tray and keeps receiving events/notifications — reopen from the tray icon.</div></div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="aside">
+    <div class="timer-card" data-timer-id="halftb"><div class="timer-ring"><svg width="64" height="64" viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="27" fill="none" stroke-width="4"/><circle class="fg" id="ring1" cx="32" cy="32" r="27" fill="none" stroke-width="4" stroke-dasharray="169.6" stroke-dashoffset="0"/></svg><div class="label" id="ring1txt">02:30</div></div><div class="timer-info"><div class="n">Half TB</div><div class="hotkey" id="ring1hk">Hotkey: Numpad1</div><div class="btns"><button data-act="toggle">▶</button><button data-act="reset">↻</button><button data-act="bind" class="bind-btn">Set Key</button></div></div></div>
+    <div class="timer-card" data-timer-id="fulltb"><div class="timer-ring"><svg width="64" height="64" viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="27" fill="none" stroke-width="4"/><circle class="fg" id="ring2" cx="32" cy="32" r="27" fill="none" stroke-width="4" stroke-dasharray="169.6" stroke-dashoffset="0"/></svg><div class="label" id="ring2txt">05:00</div></div><div class="timer-info"><div class="n">Full TB</div><div class="hotkey" id="ring2hk">Hotkey: Numpad2</div><div class="btns"><button data-act="toggle">▶</button><button data-act="reset">↻</button><button data-act="bind" class="bind-btn">Set Key</button></div></div></div>
+    <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Boss Levels</h2></div>
+      <table class="table mini-table"><thead><tr><th>Boss</th><th>Lvl</th></tr></thead><tbody><tr><td>Vet'ion</td><td class="c-amber">30</td></tr><tr><td>Calisto</td><td class="c-amber">45</td></tr><tr><td>Venenatis</td><td class="c-amber">50</td></tr></tbody></table>
+    </div>
+    <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Custom Items</h2></div><div class="tag-list"><span>Shard of War</span><span>Cursed blood orb</span><span>Dragon claws</span></div></div>
+  </div>
+
+  <div class="footer">
+    <div class="ticker-wrap"><span class="lbl">SYS LOG</span>
+      <div class="ticker">
+        <span>[15:46:21] Alert fired — <b>Cursed blood orb</b> (Abra Kadabra)</span>
+        <span>[15:45:10] Alert fired — <b>Dragon claws</b> (M1llionz)</span>
+        <span>[15:43:02] Boss drop matched — Venenatis</span>
+        <span>[15:41:55] Custom item matched — Harvest Chest</span>
+        <span>[15:46:21] Alert fired — <b>Cursed blood orb</b> (Abra Kadabra)</span>
+        <span>[15:45:10] Alert fired — <b>Dragon claws</b> (M1llionz)</span>
+      </div>
+    </div>
+    <div class="brandline">WARDEN v3.0 · SpawnPK</div>
+  </div>
+
+</div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
