@@ -97,6 +97,16 @@ class LocalStore:
             self._conn.execute(f"UPDATE events SET synced = 1 WHERE id IN ({qs})", event_ids)
             self._conn.commit()
 
+    def clear_events(self) -> int:
+        """Wipes the local event cache (not the central server's copy).
+        Used by the Debug page's "Flush Cache" button when the local
+        cache is suspected stale/corrupt -- the next backfill/WS
+        stream will repopulate it. Returns the number of rows removed."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM events")
+            self._conn.commit()
+            return cur.rowcount
+
     # -- watchlist ----------------------------------------------------
     def add_watch(self, username: str) -> None:
         with self._lock:

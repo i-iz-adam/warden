@@ -90,6 +90,29 @@ def http_post_json(
         return json.loads(resp.read().decode("utf-8"))
 
 
+def send_discord_webhook(webhook_url: str, content: str, timeout: float = 8.0) -> bool:
+    """Fire-and-forget POST of a simple message payload to a Discord
+    webhook URL. Returns True on a 2xx response. Used by main.py to
+    forward notable events, and by Api.test_discord_webhook() for the
+    Settings page's "Test" button."""
+    if not webhook_url:
+        return False
+    body = json.dumps({"content": content[:2000]}).encode("utf-8")
+    req = urllib.request.Request(
+        webhook_url, data=body, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return 200 <= resp.status < 300
+    except urllib.error.HTTPError as err:
+        # Discord returns 204 No Content on success, which urlopen treats
+        # as a normal response above -- HTTPError here means a real
+        # failure (bad URL, rate-limited, etc.)
+        logger.warning("Discord webhook POST failed: %s", err)
+        return False
+
+
 def fetch_recent_events(
     http_base: str,
     limit: int = 150,
@@ -114,11 +137,13 @@ class ServerSyncClient:
         on_event: Callable[[dict[str, Any]], None],
         min_backoff: float = 1.0,
         max_backoff: float = 30.0,
+        on_status: Callable[[bool], None] | None = None,
     ):
         self.ws_url = ws_url
         self.on_event = on_event
         self.min_backoff = min_backoff
         self.max_backoff = max_backoff
+        self.on_status = on_status
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -131,6 +156,14 @@ class ServerSyncClient:
 
     def stop(self) -> None:
         self._stop.set()
+        self._set_status(False)
+
+    def _set_status(self, connected: bool) -> None:
+        if self.on_status:
+            try:
+                self.on_status(connected)
+            except Exception:
+                logger.exception("on_status handler failed")
 
     # -- internals ------------------------------------------------------
     def _run(self) -> None:
@@ -144,6 +177,7 @@ class ServerSyncClient:
                 async with websockets.connect(self.ws_url, ping_interval=20, ping_timeout=20) as ws:
                     logger.info("Connected to central server")
                     backoff = self.min_backoff
+                    self._set_status(True)
                     while not self._stop.is_set():
                         raw = await asyncio.wait_for(ws.recv(), timeout=25)
                         try:
@@ -158,6 +192,7 @@ class ServerSyncClient:
                 # no message in a while -- loop back and let ping/pong keep it alive
                 continue
             except (websockets.WebSocketException, OSError) as err:
+                self._set_status(False)
                 if self._stop.is_set():
                     break
                 logger.warning("Sync connection dropped (%s); retrying in %.1fs", err, backoff)
