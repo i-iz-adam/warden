@@ -21,6 +21,7 @@ import json
 import logging
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -36,11 +37,21 @@ from sync.client import (
     http_get_json,
     http_post_json,
     send_discord_webhook,
+    tcp_ping,
 )
 from tray import TrayIcon
 
 UI_HTML = Path(__file__).parent / "ui" / "app.html"
 ICON_ICO = Path(__file__).parent / "assets" / "icon.ico"
+
+# SpawnPK game server status (Settings > Central API > SpawnPK Status).
+# Both run on the same game port; the "dev" box is a separate physical
+# host used for testing, not a path off the live one.
+SPAWNPK_PORT = 43594
+SPAWNPK_SERVERS = [
+    {"id": "live", "label": "Live Server", "host": "www.spawnpk.org"},
+    {"id": "dev", "label": "Dev Server", "host": "149.56.28.70"},
+]
 
 
 def setup_logging(data_dir: Path) -> logging.Logger:
@@ -66,6 +77,8 @@ class Api:
         self._window: webview.Window | None = None
         self._quit_requested = False
         self._connected = False
+        self._server_stats_cache: dict[str, Any] | None = None
+        self._spawnpk_status_cache: dict[str, Any] | None = None
 
     def attach_window(self, window: webview.Window) -> None:
         self._window = window
@@ -181,6 +194,72 @@ class Api:
             return {"ok": True, "detail": data}
         except Exception as err:
             return {"ok": False, "error": str(err)}
+
+    # -- server stats (Settings > Central API card) ----------------------
+    # The Settings page polls this on a timer to show live server health
+    # instead of a raw endpoint URL. We throttle here too, on top of the
+    # server's own /health cache, so a stray fast poll from the UI (e.g.
+    # the page re-mounting) can't turn into a burst of real HTTP calls.
+    _SERVER_STATS_MIN_INTERVAL_S = 4.0
+
+    def get_server_stats(self) -> dict[str, Any]:
+        http_base = self._http_base()
+        if not http_base:
+            return {"ok": False, "configured": False, "error": "No API endpoint configured"}
+
+        now = time.monotonic()
+        cached = getattr(self, "_server_stats_cache", None)
+        if cached and (now - cached["at"]) < self._SERVER_STATS_MIN_INTERVAL_S:
+            return cached["result"]
+
+        started = time.monotonic()
+        try:
+            data = http_get_json(http_base, "/health", timeout=5.0)
+            ping_ms = round((time.monotonic() - started) * 1000)
+            result: dict[str, Any] = {
+                "ok": True,
+                "configured": True,
+                "ping_ms": ping_ms,
+                **(data if isinstance(data, dict) else {}),
+            }
+        except Exception as err:
+            result = {"ok": False, "configured": True, "error": str(err)}
+
+        self._server_stats_cache = {"at": now, "result": result}
+        return result
+
+    # -- SpawnPK game server status (Settings > Central API sub-panel) --
+    # Plain TCP reachability + latency against the game port itself --
+    # nothing HTTP here, so this can't go through the JS side at all.
+    _SPAWNPK_STATUS_MIN_INTERVAL_S = 10.0
+
+    def get_spawnpk_status(self) -> dict[str, Any]:
+        now = time.monotonic()
+        cached = self._spawnpk_status_cache
+        if cached and (now - cached["at"]) < self._SPAWNPK_STATUS_MIN_INTERVAL_S:
+            return cached["result"]
+
+        results: dict[str, dict[str, Any]] = {}
+
+        def _check(server: dict[str, str]) -> None:
+            results[server["id"]] = {
+                "id": server["id"],
+                "label": server["label"],
+                "host": server["host"],
+                "port": SPAWNPK_PORT,
+                **tcp_ping(server["host"], SPAWNPK_PORT),
+            }
+
+        threads = [threading.Thread(target=_check, args=(s,), daemon=True) for s in SPAWNPK_SERVERS]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=6.0)
+
+        servers = [results.get(s["id"], {**s, "port": SPAWNPK_PORT, "online": False, "ping_ms": None}) for s in SPAWNPK_SERVERS]
+        result = {"ok": True, "servers": servers}
+        self._spawnpk_status_cache = {"at": now, "result": result}
+        return result
 
     def test_discord_webhook(self, webhook_url: str | None = None) -> dict[str, Any]:
         """Settings page 'Test Webhook' button. Uses the passed URL if
