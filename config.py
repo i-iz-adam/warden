@@ -20,6 +20,9 @@ DEFAULTS: dict[str, Any] = {
     "notifications_enabled": True,
     "onboarding_complete": False,
     "close_behavior": "background",  # "background" = hide to tray (keep receiving events) | "exit" = fully quit
+    "discord_webhook": "",
+    "discord_forwarding_enabled": True,
+    "min_alert_value_m": 5,
 }
 
 

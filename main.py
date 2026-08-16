@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,14 @@ import webview
 from config import Config
 from local_store import LocalStore
 from paths import get_data_dir, log_path
-from sync.client import ServerSyncClient, derive_http_base, fetch_recent_events, http_get_json, http_post_json
+from sync.client import (
+    ServerSyncClient,
+    derive_http_base,
+    fetch_recent_events,
+    http_get_json,
+    http_post_json,
+    send_discord_webhook,
+)
 from tray import TrayIcon
 
 UI_HTML = Path(__file__).parent / "ui" / "app.html"
@@ -57,9 +65,25 @@ class Api:
         self.log = logger
         self._window: webview.Window | None = None
         self._quit_requested = False
+        self._connected = False
 
     def attach_window(self, window: webview.Window) -> None:
         self._window = window
+
+    def set_connected(self, connected: bool) -> None:
+        """Called by the sync client's on_status callback whenever the
+        WS connection to the central server goes up/down. Drives both
+        get_sync_status() (polled by the UI) and a direct push into the
+        page so the offline overlay can react immediately instead of
+        waiting for the next poll."""
+        self._connected = connected
+        if self._window:
+            try:
+                self._window.evaluate_js(
+                    f"window.wardenSetApiStatus && window.wardenSetApiStatus({json.dumps(connected)})"
+                )
+            except Exception:
+                pass
 
     # -- settings -----------------------------------------------------
     def get_config(self) -> dict[str, Any]:
@@ -72,12 +96,15 @@ class Api:
             self._push_tracked_accounts(self.store.list_watch())
         return self.config.get_all()
 
-    def complete_onboarding(self, username: str, accent: str, glow: str) -> dict[str, Any]:
+    def complete_onboarding(
+        self, username: str, accent: str, glow: str, discord_webhook: str = ""
+    ) -> dict[str, Any]:
         self.config.update(
             username=username,
             theme_accent=accent,
             theme_glow=glow,
             onboarding_complete=True,
+            discord_webhook=discord_webhook or "",
         )
         self._push_tracked_accounts(self.store.list_watch())
         return self.config.get_all()
@@ -117,9 +144,20 @@ class Api:
     def get_recent_events(self, event_type: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         return self.store.recent_events(event_type=event_type, limit=limit)
 
+    def flush_local_cache(self) -> dict[str, Any]:
+        """Debug page 'Flush Cache' -- wipes the local event cache only
+        (the central server's copy, if configured, is untouched and
+        will repopulate this on the next backfill/WS stream)."""
+        removed = self.store.clear_events()
+        self.log.info("Local event cache flushed (%d rows removed)", removed)
+        return {"ok": True, "removed": removed}
+
     # -- misc -----------------------------------------------------------
     def get_data_dir_path(self) -> str:
         return str(get_data_dir())
+
+    def get_log_path(self) -> str:
+        return str(log_path(get_data_dir()))
 
     def ping(self) -> str:
         return "pong"
@@ -128,7 +166,31 @@ class Api:
         return {
             "configured": bool(self.config.get("api_endpoint")),
             "endpoint": self.config.get("api_endpoint"),
+            "connected": self._connected,
         }
+
+    def test_api_connection(self) -> dict[str, Any]:
+        """Debug/Settings 'Test Connection' -- one-shot HTTP hit against
+        /health on the central server, independent of the persistent WS
+        connection's current state."""
+        http_base = self._http_base()
+        if not http_base:
+            return {"ok": False, "error": "No API endpoint configured"}
+        try:
+            data = http_get_json(http_base, "/health")
+            return {"ok": True, "detail": data}
+        except Exception as err:
+            return {"ok": False, "error": str(err)}
+
+    def test_discord_webhook(self, webhook_url: str | None = None) -> dict[str, Any]:
+        """Settings page 'Test Webhook' button. Uses the passed URL if
+        given (so the user can test before saving), else the saved
+        config value."""
+        url = webhook_url or self.config.get("discord_webhook")
+        if not url:
+            return {"ok": False, "error": "No webhook URL set"}
+        ok = send_discord_webhook(url, "Warden: this is a test alert. If you can see this, forwarding is working.")
+        return {"ok": ok, "error": None if ok else "Discord did not accept the webhook"}
 
     # -- market (live passthrough to the central server; no local cache) -
     def _http_base(self) -> str:
@@ -280,6 +342,42 @@ def main() -> None:
 
     sync_client: ServerSyncClient | None = None
     if ws_url:
+        # Event types worth pinging Discord about -- drops/kills/world
+        # events, not routine chatter. Mirrors the frontend's "notable"
+        # feed styling (t-rare/t-boss/t-event in ui/app.js) closely
+        # enough without needing to duplicate its full classification.
+        DISCORD_NOTIFY_TYPES = {"drop", "raids_drop", "corb_kill", "event_boss_spawn"}
+
+        def _format_discord_message(event: dict[str, Any]) -> str:
+            etype = event.get("event_type", "event")
+            f = event.get("fields") or {}
+            if etype in ("drop", "raids_drop"):
+                qty = f.get("quantity")
+                qty_txt = f"x{qty} " if qty and qty > 1 else ""
+                return f"**{f.get('player','Unknown')}** received {qty_txt}{f.get('item','item')} from {f.get('source','unknown source')}"
+            if etype == "corb_kill":
+                return f"**{f.get('killer','Unknown')}** defeated {f.get('victim','someone')} for {f.get('item','loot')}"
+            if etype == "event_boss_spawn":
+                return f"World boss located at **{f.get('location','an unknown location')}**"
+            return f"{etype}: {f}"
+
+        def _maybe_forward_discord(event: dict[str, Any]) -> None:
+            if event.get("event_type") not in DISCORD_NOTIFY_TYPES:
+                return
+            if not config.get("discord_forwarding_enabled", True):
+                return
+            webhook = config.get("discord_webhook")
+            if not webhook:
+                return
+            message = _format_discord_message(event)
+
+            def _send():
+                try:
+                    send_discord_webhook(webhook, message)
+                except Exception:
+                    logger.exception("Discord webhook forward failed")
+            threading.Thread(target=_send, daemon=True, name="warden-discord").start()
+
         def handle_server_event(event: dict[str, Any]) -> None:
             # The WS stream carries two message shapes over the same
             # connection: event_new/event_confirmed (chat-derived
@@ -325,8 +423,9 @@ def main() -> None:
                 )
             except Exception:
                 logger.exception("Failed to push event into UI")
+            _maybe_forward_discord(event)
 
-        sync_client = ServerSyncClient(ws_url, handle_server_event)
+        sync_client = ServerSyncClient(ws_url, handle_server_event, on_status=api.set_connected)
         sync_client.start()
         logger.info("Sync client started against %s", ws_url)
         api._push_tracked_accounts(store.list_watch())

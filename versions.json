@@ -1,17 +1,17 @@
 {
-  "version": "1.0.0+build.3",
-  "date": "2026-08-15T13:06:01.374197",
+  "version": "1.0.0+build.4",
+  "date": "2026-08-16T08:27:35.135754",
   "artifacts": {
     "windows": {
-      "url": "https://github.com/i-iz-adam/warden/releases/download/v1.0.0+build.3/Warden-windows-v1.0.0+build.3.zip",
+      "url": "https://github.com/i-iz-adam/warden/releases/download/v1.0.0+build.4/Warden-windows-v1.0.0+build.4.zip",
       "platform": "windows"
     },
     "macos": {
-      "url": "https://github.com/i-iz-adam/warden/releases/download/v1.0.0+build.3/Warden-macos-v1.0.0+build.3.tar.gz",
+      "url": "https://github.com/i-iz-adam/warden/releases/download/v1.0.0+build.4/Warden-macos-v1.0.0+build.4.tar.gz",
       "platform": "macos"
     },
     "linux": {
-      "url": "https://github.com/i-iz-adam/warden/releases/download/v1.0.0+build.3/Warden-linux-v1.0.0+build.3.tar.gz",
+      "url": "https://github.com/i-iz-adam/warden/releases/download/v1.0.0+build.4/Warden-linux-v1.0.0+build.4.tar.gz",
       "platform": "linux"
     }
   },
