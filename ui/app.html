@@ -332,11 +332,38 @@
         <div class="event-row"><div class="switch on" id="launchOnStartupSwitch"><i></i></div><div class="name">Launch on system startup</div></div>
       </div>
       <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Central API</h2><button class="primary" id="testApiBtn">Test Connection</button></div>
-        <div class="form-grid">
-          <div class="field-inline"><label>WebSocket Endpoint</label><input type="text" id="settingsApiEndpoint" placeholder="wss://your-server/warden/events/stream"></div>
-          <div class="field-inline"><label>HTTP Base</label><input type="text" id="settingsApiHttpBase" placeholder="https://your-server/warden"></div>
+        <div class="api-stats-grid" id="apiStatsGrid">
+          <div class="api-stat"><div class="k">Status</div><div class="v" id="apiStatHealth">—</div></div>
+          <div class="api-stat"><div class="k">Uptime</div><div class="v" id="apiStatUptime">—</div></div>
+          <div class="api-stat"><div class="k">Ping</div><div class="v" id="apiStatPing">—</div></div>
+          <div class="api-stat"><div class="k">Connected Clients</div><div class="v" id="apiStatClients">—</div></div>
+          <div class="api-stat"><div class="k">Total Stored Events</div><div class="v" id="apiStatEvents">—</div></div>
+          <div class="api-stat"><div class="k">Market Sales Tracked</div><div class="v" id="apiStatMarket">—</div></div>
         </div>
-        <div style="padding:0 18px 16px;"><button id="saveApiBtn">Save & Reconnect</button> <span id="apiTestResult" style="font-size:11px;color:var(--steel-dim);margin-left:10px;"></span></div>
+        <div style="padding:2px 18px 16px;font-size:10px;color:var(--steel-dim);" id="apiStatsUpdated">Not checked yet</div>
+        <div class="settings-collapse">
+          <button class="btn-sm" id="toggleApiEndpointBtn" type="button">Configure Endpoint ▾</button>
+          <div class="form-grid hidden" id="apiEndpointFields">
+            <div class="field-inline"><label>WebSocket Endpoint</label><input type="text" id="settingsApiEndpoint" placeholder="wss://your-server/warden/events/stream"></div>
+            <div class="field-inline"><label>HTTP Base</label><input type="text" id="settingsApiHttpBase" placeholder="https://your-server/warden"></div>
+          </div>
+          <div class="hidden" id="apiEndpointSaveRow" style="padding:12px 0 0;"><button id="saveApiBtn">Save & Reconnect</button> <span id="apiTestResult" style="font-size:11px;color:var(--steel-dim);margin-left:10px;"></span></div>
+        </div>
+        <div class="spawnpk-status" id="spawnpkStatus">
+          <div class="spawnpk-status-head">SpawnPK Status <span style="color:var(--steel-dim);font-weight:400;">· port 43594</span></div>
+          <div class="spawnpk-row" data-server="live">
+            <div class="spawnpk-dot" id="spawnpkDotLive"></div>
+            <div class="spawnpk-name">Live Server<div class="spawnpk-host">www.spawnpk.org</div></div>
+            <div class="spawnpk-state" id="spawnpkStateLive">Checking…</div>
+            <div class="spawnpk-ping" id="spawnpkPingLive">—</div>
+          </div>
+          <div class="spawnpk-row" data-server="dev">
+            <div class="spawnpk-dot" id="spawnpkDotDev"></div>
+            <div class="spawnpk-name">Dev Server<div class="spawnpk-host">redacted</div></div>
+            <div class="spawnpk-state" id="spawnpkStateDev">Checking…</div>
+            <div class="spawnpk-ping" id="spawnpkPingDev">—</div>
+          </div>
+        </div>
       </div>
       <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Discord Webhook</h2><button class="primary" id="testWebhookBtn">Test Webhook</button></div>
         <div class="form-grid"><div class="field-inline"><label>Webhook URL</label><input type="text" id="settingsDiscordWebhook" placeholder="https://discord.com/api/webhooks/..."></div></div>

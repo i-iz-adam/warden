@@ -238,6 +238,10 @@ function goToPage(p) {
         mainEl.scrollTop = 0;
         staggerChildren(newPage);
     }, 150);
+    if (p === 'settings') {
+        pollApiStats();
+        pollSpawnpkStatus();
+    }
 }
 
 /* ===== LIVE SERVER SYNC ===== */
@@ -629,6 +633,106 @@ function initApiStatusOverlay() {
     pollSyncStatus();
 }
 
+/* ===== SETTINGS PAGE: Central API live stats =====
+   Replaces the raw endpoint URL as the main thing shown on the
+   Central API card -- the URL fields still exist (behind "Configure
+   Endpoint") but the panel itself now surfaces what actually matters
+   day to day: is the server healthy, how long has it been up, how
+   fast does it respond, how many clients/events is it carrying.
+   Backed by Api.get_server_stats() -> GET /health, which the server
+   itself caches for a few seconds. On top of that we only poll here
+   while the Settings page is actually open, and no more than once
+   per API_STATS_POLL_MS, so this never turns into a tight loop. */
+const API_STATS_POLL_MS = 20000;
+let _apiStatsTimer = null;
+
+function formatUptime(seconds) {
+    if (seconds == null || isNaN(seconds)) return '—';
+    seconds = Math.floor(seconds);
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+function renderApiStats(stats) {
+    const healthEl = document.getElementById('apiStatHealth');
+    const uptimeEl = document.getElementById('apiStatUptime');
+    const pingEl = document.getElementById('apiStatPing');
+    const clientsEl = document.getElementById('apiStatClients');
+    const eventsEl = document.getElementById('apiStatEvents');
+    const marketEl = document.getElementById('apiStatMarket');
+    const updatedEl = document.getElementById('apiStatsUpdated');
+    if (!healthEl) return;
+
+    const ok = !!(stats && stats.ok);
+    healthEl.textContent = ok ? 'Healthy' : (stats && stats.configured === false ? 'Not configured' : 'Unreachable');
+    healthEl.classList.toggle('ok', ok);
+    healthEl.classList.toggle('bad', !ok);
+
+    uptimeEl.textContent = ok ? formatUptime(stats.uptime_seconds) : '—';
+    pingEl.textContent = ok && stats.ping_ms != null ? `${stats.ping_ms} ms` : '—';
+    clientsEl.textContent = ok && stats.connected_clients != null ? stats.connected_clients : '—';
+    eventsEl.textContent = ok && stats.total_stored_events != null ? stats.total_stored_events.toLocaleString() : '—';
+    const marketSales = ok && stats.market ? stats.market.total_sales : null;
+    marketEl.textContent = marketSales != null ? marketSales.toLocaleString() : '—';
+
+    if (updatedEl) {
+        updatedEl.textContent = ok
+            ? `Updated ${new Date().toLocaleTimeString()}`
+            : (stats && stats.error ? `Last check failed: ${stats.error}` : 'No API endpoint configured');
+    }
+}
+
+function pollApiStats() {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || typeof api.get_server_stats !== 'function') return;
+    api.get_server_stats().then(renderApiStats).catch(() => {});
+}
+
+function startApiStatsPolling() {
+    if (_apiStatsTimer) return;
+    pollApiStats();
+    pollSpawnpkStatus();
+    _apiStatsTimer = setInterval(() => {
+        // Only bother hitting the server while the Settings page is
+        // actually the one on screen.
+        const active = document.querySelector('.page.active')?.dataset.page;
+        if (active === 'settings') {
+            pollApiStats();
+            pollSpawnpkStatus();
+        }
+    }, API_STATS_POLL_MS);
+}
+
+/* ===== SETTINGS PAGE: SpawnPK game server status =====
+   Plain TCP reachability + ping against the SpawnPK game port itself
+   (43594) -- not something the browser side can do, so this is a
+   thin renderer over Api.get_spawnpk_status(), which does the actual
+   socket connect on the Python side and throttles itself. */
+function renderSpawnpkStatus(status) {
+    const servers = (status && status.servers) || [];
+    servers.forEach(s => {
+        const suffix = s.id === 'live' ? 'Live' : 'Dev';
+        const dot = document.getElementById('spawnpkDot' + suffix);
+        const state = document.getElementById('spawnpkState' + suffix);
+        const ping = document.getElementById('spawnpkPing' + suffix);
+        if (!dot) return;
+        dot.classList.toggle('online', !!s.online);
+        dot.classList.toggle('offline', !s.online);
+        if (state) state.textContent = s.online ? 'Online' : 'Offline';
+        if (ping) ping.textContent = s.online && s.ping_ms != null ? `${s.ping_ms} ms` : '—';
+    });
+}
+
+function pollSpawnpkStatus() {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || typeof api.get_spawnpk_status !== 'function') return;
+    api.get_spawnpk_status().then(renderSpawnpkStatus).catch(() => {});
+}
+
 /* ===== SETTINGS PAGE: Central API + Discord Webhook ===== */
 function wireSettingsPanel() {
     const api = window.pywebview && window.pywebview.api;
@@ -654,6 +758,15 @@ function wireSettingsPanel() {
             if (webhookEl) webhookEl.value = cfg.discord_webhook || '';
         }).catch(() => {});
     }
+
+    startApiStatsPolling();
+    document.getElementById('toggleApiEndpointBtn')?.addEventListener('click', function() {
+        const fields = document.getElementById('apiEndpointFields');
+        const saveRow = document.getElementById('apiEndpointSaveRow');
+        const nowHidden = fields?.classList.toggle('hidden');
+        saveRow?.classList.toggle('hidden', nowHidden);
+        this.textContent = nowHidden ? 'Configure Endpoint ▾' : 'Configure Endpoint ▴';
+    });
 
     minAlertEl?.addEventListener('change', () => {
         const v = Math.max(0, Number(minAlertEl.value) || 0);
@@ -689,6 +802,7 @@ function wireSettingsPanel() {
                 resEl.textContent = 'Saved. Restart Warden to reconnect with the new endpoint.';
                 resEl.style.color = 'var(--toxic)';
             }
+            pollApiStats();
         } catch (err) {
             console.error('Failed to save API settings', err);
         }
@@ -717,6 +831,7 @@ function wireSettingsPanel() {
         }
         this.textContent = orig;
         this.disabled = false;
+        pollApiStats();
     });
 
     document.getElementById('testWebhookBtn')?.addEventListener('click', async function() {

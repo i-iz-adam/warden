@@ -16,7 +16,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import socket
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -25,6 +27,21 @@ from typing import Any, Callable
 import websockets
 
 logger = logging.getLogger("warden")
+
+
+def tcp_ping(host: str, port: int, timeout: float = 4.0) -> dict[str, Any]:
+    """Raw TCP connect check -- used for the SpawnPK game server status
+    (live + dev), which only exposes a socket on `port`, not an HTTP
+    API we could otherwise hit. A successful connect (however brief)
+    is treated as "online"; we measure wall time for the handshake as
+    a rough ping and always close the socket right after."""
+    started = time.monotonic()
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            ping_ms = round((time.monotonic() - started) * 1000)
+        return {"online": True, "ping_ms": ping_ms}
+    except Exception as err:
+        return {"online": False, "ping_ms": None, "error": str(err)}
 
 
 def derive_http_base(ws_url: str) -> str:
