@@ -22,6 +22,9 @@ import logging
 import sys
 import threading
 import time
+import base64
+import re
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -29,11 +32,13 @@ import webview
 
 from config import Config
 from local_store import LocalStore
-from paths import get_data_dir, log_path
+from paths import get_data_dir, item_sprites_cache_dir, log_path
 from sync.client import (
     ServerSyncClient,
     derive_http_base,
     fetch_recent_events,
+    http_delete_json,
+    http_get_bytes,
     http_get_json,
     http_post_json,
     send_discord_webhook,
@@ -52,6 +57,18 @@ SPAWNPK_SERVERS = [
     {"id": "live", "label": "Live Server", "host": "www.spawnpk.org"},
     {"id": "dev", "label": "Dev Server", "host": "149.56.28.70"},
 ]
+
+
+def _png_to_data_uri(png_bytes: bytes) -> str:
+    return "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+
+
+# The SpawnPK game client's own loadout folder -- NOT a Warden data dir.
+# Windows: C:\Users\<user>\.spawnpk-data\loadouts
+LOCAL_LOADOUTS_DIR = Path.home() / ".spawnpk-data" / "loadouts"
+
+
+logger = logging.getLogger("warden")
 
 
 def setup_logging(data_dir: Path) -> logging.Logger:
@@ -261,6 +278,84 @@ class Api:
         self._spawnpk_status_cache = {"at": now, "result": result}
         return result
 
+    # -- item sprite cache (Warden\server\data\item_sprites\ -> local) --
+    # Items are keyed by exact in-game name, e.g. "Armadyl godsword
+    # (or)". First request for a given name downloads the PNG from the
+    # central server and writes it to the local cache dir; every call
+    # after that (this session and every future one) is a pure disk
+    # read, no network at all. UI calls this via Api.get_item_image and
+    # sets the result straight as an <img> src (data URI), so there's
+    # no separate "serve this over localhost" step needed.
+    _ITEM_NAME_SAFE_RE = re.compile(r"^[A-Za-z0-9 '()\-+_.,]{1,120}$")
+
+    def get_item_image(self, item_name: str) -> dict[str, Any]:
+        name = (item_name or "").strip()
+        if not name or not self._ITEM_NAME_SAFE_RE.match(name):
+            return {"ok": False, "error": "Invalid item name"}
+
+        cache_dir = item_sprites_cache_dir(get_data_dir())
+        cache_path = cache_dir / f"{name}.png"
+
+        if cache_path.is_file():
+            try:
+                png_bytes = cache_path.read_bytes()
+                return {"ok": True, "cached": True, "data_uri": _png_to_data_uri(png_bytes)}
+            except OSError as err:
+                logger.warning("Failed reading cached sprite for %s: %s", name, err)
+
+        http_base = self._http_base()
+        if not http_base:
+            return {"ok": False, "error": "No API endpoint configured"}
+
+        try:
+            png_bytes = http_get_bytes(http_base, f"/items/image/{urllib.parse.quote(name)}", timeout=8.0)
+        except Exception as err:
+            return {"ok": False, "error": str(err)}
+
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(png_bytes)
+        except OSError as err:
+            # Not fatal -- we can still hand back this fetch, we just
+            # won't have it cached for next time.
+            logger.warning("Failed caching sprite for %s: %s", name, err)
+
+        return {"ok": True, "cached": False, "data_uri": _png_to_data_uri(png_bytes)}
+
+    # -- local (in-game) loadouts: "My Loadouts" tab -----------------------
+    # Reads whatever the SpawnPK game client itself has saved under
+    # ~/.spawnpk-data/loadouts, so the Loadouts page can show what's
+    # already sitting on this PC instead of asking Warden to be the
+    # source of truth for it.
+    #
+    # TODO: this is a design-time placeholder -- the game client's on-disk
+    # loadout format hasn't been finalized yet. Currently assumes one JSON
+    # file per loadout shaped like {"name": ..., "equipment": {...},
+    # "inventory": [...]}, mirroring the builder's own state shape.
+    # Update the parsing below once that format is confirmed; until then
+    # this just returns an empty list if the folder is missing or a file
+    # doesn't parse, rather than erroring the whole page out.
+    def get_local_loadouts(self) -> dict[str, Any]:
+        loadouts: list[dict[str, Any]] = []
+        try:
+            if LOCAL_LOADOUTS_DIR.is_dir():
+                for f in sorted(LOCAL_LOADOUTS_DIR.glob("*.json")):
+                    try:
+                        data = json.loads(f.read_text(encoding="utf-8"))
+                    except (OSError, ValueError) as err:
+                        logger.warning("Skipping unreadable loadout file %s: %s", f, err)
+                        continue
+                    loadouts.append({
+                        "name": data.get("name") or f.stem,
+                        "equipment": data.get("equipment") or {},
+                        "inventory": data.get("inventory") or [],
+                        "file": f.name,
+                    })
+        except OSError as err:
+            logger.warning("Failed reading local loadouts dir: %s", err)
+
+        return {"ok": True, "path": str(LOCAL_LOADOUTS_DIR), "loadouts": loadouts}
+
     def test_discord_webhook(self, webhook_url: str | None = None) -> dict[str, Any]:
         """Settings page 'Test Webhook' button. Uses the passed URL if
         given (so the user can test before saving), else the saved
@@ -301,6 +396,51 @@ class Api:
         except Exception:
             self.log.warning("get_market_sales failed against %s", http_base, exc_info=True)
             return []
+
+    # -- market price alerts (Market page) -------------------------------
+    def _alert_owner(self) -> str:
+        # Same identity used for /market/track's watchlist -- whatever the
+        # primary username configured for this install is, lowercased to
+        # match how the server stores/matches owners.
+        return (self.config.get("username") or "warden").strip().lower()
+
+    def create_market_alert(self, item_id: int, item_name: str, direction: str, price_gp: float, repeat: bool = False) -> dict[str, Any]:
+        http_base = self._http_base()
+        if not http_base:
+            return {"ok": False, "error": "No API endpoint configured"}
+        try:
+            return http_post_json(http_base, "/market/alerts", {
+                "owner": self._alert_owner(),
+                "item_id": item_id,
+                "item_name": item_name,
+                "direction": direction,
+                "price_gp": price_gp,
+                "repeat": repeat,
+            })
+        except Exception as err:
+            self.log.warning("create_market_alert failed", exc_info=True)
+            return {"ok": False, "error": str(err)}
+
+    def get_market_alerts(self) -> list[dict[str, Any]]:
+        http_base = self._http_base()
+        if not http_base:
+            return []
+        try:
+            data = http_get_json(http_base, "/market/alerts", {"owner": self._alert_owner()})
+            return (data or {}).get("alerts", []) if isinstance(data, dict) else []
+        except Exception:
+            self.log.warning("get_market_alerts failed against %s", http_base, exc_info=True)
+            return []
+
+    def delete_market_alert(self, alert_id: int) -> dict[str, Any]:
+        http_base = self._http_base()
+        if not http_base:
+            return {"ok": False, "error": "No API endpoint configured"}
+        try:
+            return http_delete_json(http_base, f"/market/alerts/{alert_id}?owner={self._alert_owner()}")
+        except Exception as err:
+            self.log.warning("delete_market_alert failed", exc_info=True)
+            return {"ok": False, "error": str(err)}
 
     # -- window chrome (frameless window; see ui/app.html .winctl) ------
     def minimize_window(self) -> None:
@@ -483,6 +623,19 @@ def main() -> None:
                     )
                 except Exception:
                     logger.exception("Failed to push market listing into UI")
+                return
+
+            if event.get("type") == "market_alert_triggered":
+                # A price alert this client created (see Api.create_market_alert)
+                # was hit by a fresh sale (server/market_alerts.py). Only
+                # relevant to the owner it belongs to -- the UI side
+                # filters on that before showing anything.
+                try:
+                    window.evaluate_js(
+                        f"window.wardenOnMarketAlert && window.wardenOnMarketAlert({json.dumps(event)})"
+                    )
+                except Exception:
+                    logger.exception("Failed to push market alert into UI")
                 return
 
             fields = event.get("fields") or {}

@@ -45,6 +45,14 @@ def ensure_data_dirs(data_dir: Path) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / "logs").mkdir(exist_ok=True)
     (data_dir / "cache").mkdir(exist_ok=True)
+    (data_dir / "cache" / "item_sprites").mkdir(exist_ok=True)
+
+
+def item_sprites_cache_dir(data_dir: Path | None = None) -> Path:
+    """Where downloaded item sprites live once a client has fetched
+    them from the central server -- one PNG per item name, reused
+    forever after (see main.py Api.get_item_image)."""
+    return (data_dir or get_data_dir()) / "cache" / "item_sprites"
 
 
 def config_path(data_dir: Path | None = None) -> Path:

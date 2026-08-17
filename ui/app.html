@@ -3,11 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <title>WARDEN — SpawnPK Companion</title>
+<link rel="icon" type="image/png" href="../assets/icon.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <div id="loadbar"></div>
+<div id="toastStack"></div>
 
 <!-- ============ SPLASH ============ -->
 <div id="splash">
@@ -116,8 +118,8 @@
     <div class="nav-item active" data-page="dashboard"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Dashboard</div>
     <div class="nav-item" data-page="profile"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/></svg>Profile <span class="sub">Watchlist</span></div>
     <div class="nav-item" data-page="market"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17l5-5 4 4 8-8"/><path d="M14 8h6v6"/></svg>Market <span class="sub">Prices & Sales</span></div>
+    <div class="nav-item" data-page="loadouts"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2l8 4v6c0 5.4-3.4 8.6-8 10-4.6-1.4-8-4.6-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>Loadouts <span class="sub">Gear Sets</span></div>
     <div class="nav-divider"></div>
-    <div class="nav-item" data-page="timers"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>PK Timers <span class="sub">Numpad</span></div>
     <div class="nav-item" data-page="drops"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2 L4 14 h16 Z M12 22 v-8"/></svg>Drops <span class="sub">Live Feed</span></div>
     <div class="nav-item" data-page="events"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2l2.5 6.5L21 9l-5 4.2L17.5 21 12 17l-5.5 4L8 13.2 3 9l6.5-.5z"/></svg>Events <span class="sub">World & More</span></div>
     <div class="nav-item" data-page="bosses"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"/></svg>Boss Levels <span class="sub">Manual</span></div>
@@ -210,6 +212,13 @@
             <div><div class="dtitle" id="detName">Select an item</div><div class="dcat" id="detCat">—</div></div>
             <div class="dprice"><div class="p" id="detPrice">—</div><div class="d" id="detDelta"></div></div>
           </div>
+          <div class="market-alert-bar" id="marketAlertBar">
+            <select id="alertDirection"><option value="above">Alert when above</option><option value="below">Alert when below</option></select>
+            <input type="text" id="alertPriceInput" placeholder="Price (gp)…">
+            <button class="btn-sm" id="alertCreateBtn">+ Add Alert</button>
+            <span id="alertBarNote" style="font-size:10px;color:var(--steel-dim);margin-left:auto;"></span>
+          </div>
+          <div class="market-alerts-list" id="marketAlertsList"></div>
           <div class="tf-toggle" id="tfToggle">
             <div class="tf-chip active" data-tf="1D">1D</div>
             <div class="tf-chip" data-tf="7D">7D</div>
@@ -223,10 +232,110 @@
       </div>
     </div>
 
-    <!-- TIMERS -->
-    <div class="page" data-page="timers">
-      <div class="page-title"><h1>PK Timers</h1><p>Numpad-triggered cooldown & combat timers</p></div>
-      <div class="grid-3" id="timerGridFull"></div>
+    <!-- LOADOUTS -->
+    <div class="page" data-page="loadouts">
+      <div class="page-title"><h1>Loadouts</h1><p>Build a gear set, keep it on this PC, or share it to the Encyclopedia for others to import</p></div>
+
+      <div class="loadout-tabs">
+        <div class="loadout-tab active" data-ltab="builder">Builder</div>
+        <div class="loadout-tab" data-ltab="mine">My Loadouts</div>
+        <div class="loadout-tab" data-ltab="encyclopedia">Encyclopedia</div>
+      </div>
+
+      <!-- BUILDER -->
+      <div class="loadout-tabpage active" data-ltabpage="builder">
+        <div class="loadout-toolbar">
+          <select id="loadoutSelect" class="loadout-select">
+            <option value="">— New Loadout —</option>
+          </select>
+          <input type="text" id="loadoutNameInput" class="loadout-name-input" placeholder="Loadout name…" value="Untitled Loadout">
+          <div class="loadout-toolbar-btns">
+            <button class="btn-sm" id="loadoutClearBtn">Clear</button>
+            <button class="btn-sm" id="loadoutShareBtn">Share to Encyclopedia</button>
+            <button class="primary" id="loadoutSaveBtn">Save Loadout</button>
+          </div>
+        </div>
+
+        <div class="loadout-builder">
+          <!-- Equipped gear, laid out like the in-game worn-equipment screen -->
+          <div class="panel loadout-equip-panel">
+            <div class="panel-head"><h2><span class="dot"></span>Equipment</h2></div>
+            <div class="equip-grid">
+              <div class="eq-slot" data-slot="head" style="grid-area:head;"><div class="eq-slot-inner" data-placeholder="Head"></div></div>
+              <div class="eq-slot" data-slot="cape" style="grid-area:cape;"><div class="eq-slot-inner" data-placeholder="Cape"></div></div>
+              <div class="eq-slot" data-slot="neck" style="grid-area:neck;"><div class="eq-slot-inner" data-placeholder="Neck"></div></div>
+              <div class="eq-slot" data-slot="ammo" style="grid-area:ammo;"><div class="eq-slot-inner" data-placeholder="Ammo"></div></div>
+              <div class="eq-slot" data-slot="weapon" style="grid-area:weapon;"><div class="eq-slot-inner" data-placeholder="Weapon"></div></div>
+              <div class="eq-slot" data-slot="body" style="grid-area:body;"><div class="eq-slot-inner" data-placeholder="Body"></div></div>
+              <div class="eq-slot" data-slot="shield" style="grid-area:shield;"><div class="eq-slot-inner" data-placeholder="Shield"></div></div>
+              <div class="eq-slot" data-slot="legs" style="grid-area:legs;"><div class="eq-slot-inner" data-placeholder="Legs"></div></div>
+              <div class="eq-slot" data-slot="hands" style="grid-area:hands;"><div class="eq-slot-inner" data-placeholder="Hands"></div></div>
+              <div class="eq-slot" data-slot="feet" style="grid-area:feet;"><div class="eq-slot-inner" data-placeholder="Feet"></div></div>
+              <div class="eq-slot" data-slot="ring" style="grid-area:ring;"><div class="eq-slot-inner" data-placeholder="Ring"></div></div>
+            </div>
+
+            <div class="loadout-stats">
+              <div class="ls-stat" data-stat="attack"><span class="ls-ico">⚔</span><span class="ls-val">1</span></div>
+              <div class="ls-stat" data-stat="strength"><span class="ls-ico">💪</span><span class="ls-val">1</span></div>
+              <div class="ls-stat" data-stat="ranged"><span class="ls-ico">🏹</span><span class="ls-val">1</span></div>
+              <div class="ls-stat" data-stat="magic"><span class="ls-ico">✦</span><span class="ls-val">1</span></div>
+              <div class="ls-stat" data-stat="defence"><span class="ls-ico">🛡</span><span class="ls-val">1</span></div>
+              <div class="ls-stat" data-stat="prayer"><span class="ls-ico">✟</span><span class="ls-val">1</span></div>
+              <div class="ls-stat" data-stat="hitpoints"><span class="ls-ico">♥</span><span class="ls-val">10</span></div>
+            </div>
+          </div>
+
+          <!-- Inventory, 4x7 like the in-game bag -->
+          <div class="panel loadout-inv-panel">
+            <div class="panel-head"><h2><span class="dot"></span>Inventory</h2><span style="font-size:10px;color:var(--steel-dim);" id="loadoutInvCount">0 / 28</span></div>
+            <div class="loadout-search"><input type="text" id="loadoutItemSearch" placeholder="Search item to add…" list="loadoutItemDatalist"><datalist id="loadoutItemDatalist"></datalist></div>
+            <div class="inv-grid" id="loadoutInvGrid"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MY LOADOUTS (local, on this PC) -->
+      <div class="loadout-tabpage" data-ltabpage="mine">
+        <div class="loadout-mine-head">
+          <div>
+            <div style="font-size:12px;color:var(--steel);font-weight:600;">Loadouts saved on this PC</div>
+            <div class="loadout-path" id="loadoutLocalPath">Reading from your local SpawnPK data…</div>
+          </div>
+          <button class="btn-sm" id="loadoutRefreshLocalBtn">↻ Refresh</button>
+        </div>
+        <div class="loadout-cards" id="loadoutLocalCards">
+          <div class="loadout-empty-note">Not wired up yet — this tab will list loadouts saved by the game client once that system ships.</div>
+        </div>
+      </div>
+
+      <!-- ENCYCLOPEDIA (community search/import) -->
+      <div class="loadout-tabpage" data-ltabpage="encyclopedia">
+        <div class="encyclopedia-search-bar">
+          <input type="text" id="encyclopediaSearchInput" placeholder="Search loadouts by name…">
+          <select id="encyclopediaSlotFilter">
+            <option value="">Any Slot</option>
+            <option value="head">Head</option>
+            <option value="cape">Cape</option>
+            <option value="neck">Neck</option>
+            <option value="ammo">Ammo</option>
+            <option value="weapon">Weapon</option>
+            <option value="body">Body</option>
+            <option value="shield">Shield</option>
+            <option value="legs">Legs</option>
+            <option value="hands">Hands</option>
+            <option value="feet">Feet</option>
+            <option value="ring">Ring</option>
+          </select>
+          <input type="text" id="encyclopediaItemFilter" placeholder="Filter by item used…">
+          <select id="encyclopediaSort">
+            <option value="popular">Most Imported</option>
+            <option value="recent">Most Recent</option>
+            <option value="name">Name (A–Z)</option>
+          </select>
+        </div>
+        <div class="encyclopedia-note" id="encyclopediaNote">Showing sample loadouts — live community search comes online with the sharing backend.</div>
+        <div class="encyclopedia-grid" id="encyclopediaGrid"></div>
+      </div>
     </div>
 
     <!-- DROPS -->
@@ -359,7 +468,7 @@
           </div>
           <div class="spawnpk-row" data-server="dev">
             <div class="spawnpk-dot" id="spawnpkDotDev"></div>
-            <div class="spawnpk-name">Dev Server<div class="spawnpk-host">redacted</div></div>
+            <div class="spawnpk-name">Dev Server<div class="spawnpk-host">149.56.28.70</div></div>
             <div class="spawnpk-state" id="spawnpkStateDev">Checking…</div>
             <div class="spawnpk-ping" id="spawnpkPingDev">—</div>
           </div>
@@ -402,6 +511,7 @@
 </div>
 </div>
 
+<script src="item-images.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

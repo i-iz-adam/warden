@@ -86,6 +86,22 @@ def http_get_json(
         return json.loads(resp.read().decode("utf-8"))
 
 
+def http_get_bytes(
+    http_base: str,
+    path: str,
+    timeout: float = 8.0,
+) -> bytes:
+    """Like http_get_json but for binary payloads -- used to pull down
+    an item sprite PNG the first time a client sees an item name it
+    doesn't have cached locally (see main.py Api.get_item_image)."""
+    if not http_base:
+        raise ValueError("No API endpoint configured")
+    url = f"{http_base}{path}"
+    req = urllib.request.Request(url, headers={"Accept": "image/png"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
 def http_post_json(
     http_base: str,
     path: str,
@@ -94,7 +110,7 @@ def http_post_json(
 ) -> Any:
     """Generic one-shot POST of a JSON body against the central server.
     Used for /market/track (main.py pushes the local watchlist up so
-    the server can flag those accounts' listings)."""
+    the server can flag those accounts' listings) and /market/alerts."""
     if not http_base:
         return None
     url = f"{http_base}{path}"
@@ -103,6 +119,21 @@ def http_post_json(
         url, data=data, method="POST",
         headers={"Accept": "application/json", "Content-Type": "application/json"},
     )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def http_delete_json(
+    http_base: str,
+    path: str,
+    timeout: float = 8.0,
+) -> Any:
+    """Generic one-shot DELETE against the central server, JSON-decoded.
+    Used for DELETE /market/alerts/{id}."""
+    if not http_base:
+        return None
+    url = f"{http_base}{path}"
+    req = urllib.request.Request(url, method="DELETE", headers={"Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
