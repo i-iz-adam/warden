@@ -349,10 +349,13 @@ function describeEvent(type, f) {
         case 'raids_drop': {
             const qty = f.quantity && f.quantity > 1 ? ('x' + f.quantity + ' ') : '';
             const kc = f.kill_count ? ` (${fieldText(f.kill_count)} KC)` : '';
-            return `<b>${fieldText(f.player)||'Unknown'}</b> received <span class="item-name">${qty}${fieldText(f.item)||'item'}</span> from ${fieldText(f.source)||'unknown source'}${kc}`;
+            const itemName = fieldText(f.item) || 'item';
+            return `<b>${fieldText(f.player)||'Unknown'}</b> received ${ItemImages.icon(itemName, 18)} <span class="item-name">${qty}${itemName}</span> from ${fieldText(f.source)||'unknown source'}${kc}`;
         }
-        case 'corb_kill':
-            return `<b>${fieldText(f.killer)||'Unknown'}</b> defeated <b>${fieldText(f.victim)||'someone'}</b> for <span class="item-name">${fieldText(f.item)||'loot'}</span>`;
+        case 'corb_kill': {
+            const itemName = fieldText(f.item) || 'loot';
+            return `<b>${fieldText(f.killer)||'Unknown'}</b> defeated <b>${fieldText(f.victim)||'someone'}</b> for ${ItemImages.icon(itemName, 18)} <span class="item-name">${itemName}</span>`;
+        }
         case 'event_boss_spawn':
             return `World boss located at <b>${fieldText(f.location)||'an unknown location'}</b>`;
         default:
@@ -507,13 +510,14 @@ function dropRowHtml(ev) {
     const t = timeSrc ? new Date(timeSrc) : null;
     const time = (t && !isNaN(t.getTime())) ? t.toTimeString().slice(0, 8) : '—';
     const qty = f.quantity && f.quantity > 1 ? ('x' + f.quantity + ' ') : '';
-    const item = qty + (fieldText(f.item) || 'Unknown item');
+    const itemName = fieldText(f.item) || 'Unknown item';
+    const item = ItemImages.icon(itemName, 22) + ` <span>${qty}${itemName}</span>`;
     const player = fieldText(f.player) || 'Unknown';
     const source = fieldText(f.source) || (ev.event_type === 'raids_drop' ? 'Raid' : '—');
     // No per-drop valuation data is wired up yet (drops don't carry an
     // item id to join against market sales) -- showing a real number
     // here would mean making one up, so it's an honest "—" for now.
-    return `<tr><td>${time}</td><td>${player}</td><td>${item}</td><td style="color:var(--steel-dim);">—</td><td>${source}</td></tr>`;
+    return `<tr><td>${time}</td><td>${player}</td><td style="display:flex;align-items:center;gap:8px;">${item}</td><td style="color:var(--steel-dim);">—</td><td>${source}</td></tr>`;
 }
 
 function renderDashboardDrops() {
@@ -731,6 +735,366 @@ function pollSpawnpkStatus() {
     const api = window.pywebview && window.pywebview.api;
     if (!api || typeof api.get_spawnpk_status !== 'function') return;
     api.get_spawnpk_status().then(renderSpawnpkStatus).catch(() => {});
+}
+
+/* ===== LOADOUTS PAGE =====
+   Frontend only for now -- lays out the equip-slot + inventory-grid
+   editor and a local "Saved Loadouts" list so the interaction model
+   is proven out ahead of the real loadout system (share codes,
+   server-side storage, in-game import). Swap the marked TODOs for
+   real Api calls once that backend exists; the DOM/state shape here
+   (EQUIP_SLOTS keys, loadoutState.equipment/inventory) is what a
+   save/share payload should mirror. */
+const EQUIP_SLOT_IDS = ['head', 'cape', 'neck', 'ammo', 'weapon', 'body', 'shield', 'legs', 'hands', 'feet', 'ring'];
+const INVENTORY_SIZE = 28;
+
+const loadoutState = {
+    equipment: {},   // slotId -> itemName
+    inventory: new Array(INVENTORY_SIZE).fill(null), // itemName | null
+};
+
+/* Shared searchable item picker -- backed by MARKET_CATALOG, the same
+   item list the Market page searches (server /market/items), so a
+   loadout can only reference items that are actually real, tradeable
+   items rather than arbitrary free text. Opens as a small popover
+   anchored under the clicked slot. */
+let _itemPickerEl = null;
+function closeItemPicker() {
+    if (_itemPickerEl) {
+        document.removeEventListener('mousedown', _itemPickerOutsideHandler, true);
+        _itemPickerEl.remove();
+        _itemPickerEl = null;
+    }
+}
+function _itemPickerOutsideHandler(e) {
+    if (_itemPickerEl && !_itemPickerEl.contains(e.target)) closeItemPicker();
+}
+function openItemPicker(anchorEl, currentValue, onSelect) {
+    closeItemPicker();
+    const pop = document.createElement('div');
+    pop.className = 'item-picker-pop';
+    pop.innerHTML = `<input type="text" class="item-picker-input" list="loadoutItemDatalist" placeholder="Search item…" autocomplete="off">`;
+    document.body.appendChild(pop);
+
+    const rect = anchorEl.getBoundingClientRect();
+    const popWidth = 232;
+    let left = rect.left;
+    if (left + popWidth > window.innerWidth - 8) left = window.innerWidth - popWidth - 8;
+    pop.style.left = Math.max(8, left) + 'px';
+    pop.style.top = (rect.bottom + 6) + 'px';
+    _itemPickerEl = pop;
+
+    const input = pop.querySelector('input');
+    input.value = currentValue || '';
+    input.focus();
+    input.select();
+
+    let committed = false;
+    function commit() {
+        if (committed) return;
+        committed = true;
+        const val = input.value.trim();
+        closeItemPicker();
+        if (val) onSelect(val);
+    }
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') commit();
+        else if (e.key === 'Escape') { committed = true; closeItemPicker(); }
+    });
+    input.addEventListener('blur', () => setTimeout(commit, 120));
+    setTimeout(() => document.addEventListener('mousedown', _itemPickerOutsideHandler, true), 0);
+}
+
+function renderEquipSlot(slotId) {
+    const el = document.querySelector(`.eq-slot[data-slot="${slotId}"] .eq-slot-inner`);
+    if (!el) return;
+    const itemName = loadoutState.equipment[slotId];
+    if (!itemName) {
+        el.classList.remove('filled');
+        el.innerHTML = '';
+        return;
+    }
+    el.classList.add('filled');
+    el.innerHTML = ItemImages.icon(itemName, 42) + '<span class="eq-remove">✕</span>';
+}
+
+function renderInvSlot(idx) {
+    const el = document.querySelector(`.inv-slot[data-idx="${idx}"]`);
+    if (!el) return;
+    const itemName = loadoutState.inventory[idx];
+    if (!itemName) {
+        el.innerHTML = '';
+        return;
+    }
+    el.innerHTML = ItemImages.icon(itemName, 32) + '<span class="inv-remove">✕</span>';
+    updateLoadoutInvCount();
+}
+
+function updateLoadoutInvCount() {
+    const filled = loadoutState.inventory.filter(Boolean).length;
+    const countEl = document.getElementById('loadoutInvCount');
+    if (countEl) countEl.textContent = `${filled} / ${INVENTORY_SIZE}`;
+}
+
+function initLoadoutsPage() {
+    const invGrid = document.getElementById('loadoutInvGrid');
+    if (!invGrid) return; // page not present in this build
+
+    for (let i = 0; i < INVENTORY_SIZE; i++) {
+        const slot = document.createElement('div');
+        slot.className = 'inv-slot';
+        slot.dataset.idx = String(i);
+        slot.addEventListener('click', (e) => {
+            if (e.target.closest('.inv-remove')) {
+                loadoutState.inventory[i] = null;
+                renderInvSlot(i);
+                updateLoadoutInvCount();
+                return;
+            }
+            openItemPicker(slot, loadoutState.inventory[i], (name) => {
+                loadoutState.inventory[i] = name;
+                renderInvSlot(i);
+            });
+        });
+        invGrid.appendChild(slot);
+    }
+    updateLoadoutInvCount();
+
+    document.querySelectorAll('.eq-slot').forEach(slotEl => {
+        const slotId = slotEl.dataset.slot;
+        slotEl.addEventListener('click', (e) => {
+            if (e.target.closest('.eq-remove')) {
+                delete loadoutState.equipment[slotId];
+                renderEquipSlot(slotId);
+                return;
+            }
+            openItemPicker(slotEl, loadoutState.equipment[slotId], (name) => {
+                loadoutState.equipment[slotId] = name;
+                renderEquipSlot(slotId);
+            });
+        });
+    });
+
+    document.getElementById('loadoutItemSearch')?.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        const name = e.target.value.trim();
+        if (!name) return;
+        const freeIdx = loadoutState.inventory.findIndex(v => !v);
+        if (freeIdx === -1) return;
+        loadoutState.inventory[freeIdx] = name;
+        renderInvSlot(freeIdx);
+        e.target.value = '';
+    });
+
+    document.getElementById('loadoutClearBtn')?.addEventListener('click', () => {
+        loadoutState.equipment = {};
+        loadoutState.inventory.fill(null);
+        EQUIP_SLOT_IDS.forEach(renderEquipSlot);
+        for (let i = 0; i < INVENTORY_SIZE; i++) renderInvSlot(i);
+        updateLoadoutInvCount();
+    });
+
+    document.getElementById('loadoutSaveBtn')?.addEventListener('click', () => {
+        // TODO: persist via Api (e.g. writing into ~/.spawnpk-data/loadouts,
+        // or a Warden-side store) once that system exists. For now this
+        // just confirms the click so the button isn't a dead end -- the
+        // "My Loadouts" tab will show real saves once wired up.
+        window.alert('Saving isn\'t wired up yet — this will write your build to your local loadouts once that system ships.');
+    });
+
+    // TODO: wire to a real share-code endpoint. For now these just
+    // acknowledge the click so the buttons aren't dead ends.
+    document.getElementById('loadoutShareBtn')?.addEventListener('click', () => {
+        window.alert('Sharing to the Encyclopedia is coming soon — this will upload your current build for others to search and import.');
+    });
+
+    initLoadoutTabs();
+    initLoadoutMineTab();
+    initLoadoutEncyclopedia();
+}
+
+/* ---- sub-tabs (Builder / My Loadouts / Encyclopedia) ---- */
+function initLoadoutTabs() {
+    const tabs = document.querySelectorAll('.loadout-tab');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const key = tab.dataset.ltab;
+            document.querySelectorAll('.loadout-tab').forEach(t => t.classList.toggle('active', t === tab));
+            document.querySelectorAll('.loadout-tabpage').forEach(p => p.classList.toggle('active', p.dataset.ltabpage === key));
+            if (key === 'mine') loadLocalLoadouts();
+        });
+    });
+}
+
+/* ---- "My Loadouts" -- reads from the SpawnPK client's own
+   ~/.spawnpk-data/loadouts folder via Api.get_local_loadouts().
+   That system doesn't exist yet, so this renders whatever comes back
+   (including an empty list) and falls back to an explanatory note if
+   the API call itself isn't available in this build. ---- */
+function loadLocalLoadouts() {
+    const pathEl = document.getElementById('loadoutLocalPath');
+    const wrap = document.getElementById('loadoutLocalCards');
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || typeof api.get_local_loadouts !== 'function') {
+        if (pathEl) pathEl.textContent = '~/.spawnpk-data/loadouts';
+        return;
+    }
+    api.get_local_loadouts().then(res => {
+        if (pathEl) pathEl.textContent = (res && res.path) || '~/.spawnpk-data/loadouts';
+        const loadouts = (res && res.loadouts) || [];
+        if (!wrap) return;
+        if (!loadouts.length) {
+            wrap.innerHTML = '<div class="loadout-empty-note">No loadouts found yet. Once the game client starts saving them here, they\'ll show up automatically.</div>';
+            return;
+        }
+        wrap.innerHTML = '';
+        loadouts.forEach(lo => {
+            const items = [...Object.values(lo.equipment || {}), ...(lo.inventory || [])].filter(Boolean);
+            const card = document.createElement('div');
+            card.className = 'loadout-card';
+            card.innerHTML = `<div class="lc-name">${escapeHtml(lo.name)}</div><div class="lc-icons">${items.slice(0, 10).map(n => ItemImages.icon(n, 22)).join('')}</div><div class="lc-meta">${items.length} item${items.length === 1 ? '' : 's'}</div>`;
+            card.addEventListener('click', () => {
+                loadoutState.equipment = { ...(lo.equipment || {}) };
+                loadoutState.inventory = new Array(INVENTORY_SIZE).fill(null).map((_, i) => (lo.inventory || [])[i] || null);
+                document.getElementById('loadoutNameInput').value = lo.name;
+                EQUIP_SLOT_IDS.forEach(renderEquipSlot);
+                for (let i = 0; i < INVENTORY_SIZE; i++) renderInvSlot(i);
+                updateLoadoutInvCount();
+                document.querySelector('.loadout-tab[data-ltab="builder"]')?.click();
+            });
+            wrap.appendChild(card);
+        });
+    }).catch(() => {
+        if (wrap) wrap.innerHTML = '<div class="loadout-empty-note">Couldn\'t read local loadouts right now.</div>';
+    });
+}
+
+/* ---- Encyclopedia -- community browse/search/import. No backend
+   yet, so this runs on a small in-memory sample set purely to prove
+   out the search/filter/sort/import interaction and the visual
+   design. Swap ENCYCLOPEDIA_SAMPLE + the filtering below for a real
+   Api.search_encyclopedia_loadouts() call once that service exists;
+   the filter/sort logic already operates on the same {name,
+   equipment, inventory, author, imports, created_at} shape a real
+   API response should use. ---- */
+const ENCYCLOPEDIA_SAMPLE = [
+    { name: 'Max Melee PK', author: 'Zezima_OG', imports: 482, created_at: '2026-07-22',
+      equipment: { head: 'Neitiznot faceguard', cape: 'Infernal cape', neck: 'Amulet of torture', weapon: 'Ghrazi rapier', body: 'Bandos chestplate', shield: 'Avernic defender', legs: 'Bandos tassets', hands: 'Ferocious gloves', feet: 'Primordial boots', ring: 'Berserker ring (i)' },
+      inventory: ['Saradomin brew(4)', 'Super restore(4)', 'Karambwan'] },
+    { name: 'Zerk Tank Pure', author: 'IronHiro', imports: 311, created_at: '2026-08-01',
+      equipment: { head: 'Zerker helm', weapon: 'Dragon dagger(p++)', body: 'Zerker top', legs: 'Zerker skirt', feet: 'Dragon boots', ring: 'Warrior ring' },
+      inventory: ['Prayer potion(4)', 'Shark'] },
+    { name: 'Voidwaker Rush', author: 'SpawnGoblin', imports: 205, created_at: '2026-08-10',
+      equipment: { head: 'Void melee helm', weapon: 'Voidwaker', body: 'Void knight top', legs: 'Void knight robe', hands: 'Void knight gloves', feet: 'Dragon boots' },
+      inventory: ['Vengeance', 'Saradomin brew(4)'] },
+    { name: 'Full Manta Ranger', author: 'CrossbowKing', imports: 158, created_at: '2026-06-30',
+      equipment: { head: 'Armadyl helmet', cape: "Ava's assembler", body: 'Armadyl chestplate', legs: 'Armadyl chainskirt', weapon: 'Toxic blowpipe', ammo: 'Dragon dart', feet: 'Pegasian boots', ring: 'Archers ring (i)' },
+      inventory: ['Ranging potion(4)', 'Super restore(4)'] },
+    { name: 'Budget Hybrid PK', author: 'RookieRuner', imports: 96, created_at: '2026-08-13',
+      equipment: { head: 'Helm of neitiznot', weapon: 'Rune scimitar', body: 'Fighter torso', legs: 'Obsidian platelegs', feet: 'Climbing boots' },
+      inventory: ['Super combat potion(4)', 'Karambwan'] },
+    { name: 'Ancient Mage Setup', author: 'FrostPixel', imports: 64, created_at: '2026-07-05',
+      equipment: { head: "Ahrim's hood", cape: 'Imbued god cape', neck: 'Occult necklace', weapon: 'Kodai wand', body: "Ahrim's robetop", shield: 'Elidinis ward', legs: "Ahrim's robeskirt", ring: 'Seers ring (i)' },
+      inventory: ['Saradomin brew(4)', 'Blood rune'] },
+];
+
+let encyclopediaImported = new Set();
+
+function encCardHtml(lo, idx) {
+    const items = [...Object.values(lo.equipment || {}), ...(lo.inventory || [])].filter(Boolean);
+    const imported = encyclopediaImported.has(idx);
+    return `
+      <div class="enc-card" data-idx="${idx}">
+        <div class="enc-card-head">
+          <div><div class="enc-card-name">${escapeHtml(lo.name)}</div><div class="enc-card-author">by ${escapeHtml(lo.author)}</div></div>
+          <div class="enc-card-badge">${lo.created_at}</div>
+        </div>
+        <div class="enc-card-icons">${items.slice(0, 9).map(n => ItemImages.icon(n, 26)).join('')}</div>
+        <div class="enc-card-foot">
+          <div class="enc-card-imports"><b>${lo.imports.toLocaleString()}</b> imports</div>
+          <button class="enc-import-btn${imported ? ' imported' : ''}" data-idx="${idx}">${imported ? '✓ Imported' : 'Import'}</button>
+        </div>
+      </div>`;
+}
+
+function renderEncyclopedia(list) {
+    const grid = document.getElementById('encyclopediaGrid');
+    if (!grid) return;
+    if (!list.length) {
+        grid.innerHTML = '<div class="encyclopedia-empty">No loadouts match those filters — try broadening your search.</div>';
+        return;
+    }
+    grid.innerHTML = list.map(({ lo, idx }) => encCardHtml(lo, idx)).join('');
+    grid.querySelectorAll('.enc-import-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = Number(btn.dataset.idx);
+            encyclopediaImported.add(idx);
+            btn.classList.add('imported');
+            btn.textContent = '✓ Imported';
+            // TODO: this is a design placeholder -- once the real
+            // Encyclopedia backend exists this should call something
+            // like Api.import_encyclopedia_loadout(id) to actually
+            // hand it to the game client.
+        });
+    });
+    grid.querySelectorAll('.enc-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const idx = Number(card.dataset.idx);
+            const lo = ENCYCLOPEDIA_SAMPLE[idx];
+            if (!lo) return;
+            loadoutState.equipment = { ...lo.equipment };
+            loadoutState.inventory = new Array(INVENTORY_SIZE).fill(null).map((_, i) => lo.inventory[i] || null);
+            document.getElementById('loadoutNameInput').value = lo.name + ' (copy)';
+            EQUIP_SLOT_IDS.forEach(renderEquipSlot);
+            for (let i = 0; i < INVENTORY_SIZE; i++) renderInvSlot(i);
+            updateLoadoutInvCount();
+            document.querySelector('.loadout-tab[data-ltab="builder"]')?.click();
+        });
+    });
+}
+
+function applyEncyclopediaFilters() {
+    const q = (document.getElementById('encyclopediaSearchInput')?.value || '').trim().toLowerCase();
+    const slot = document.getElementById('encyclopediaSlotFilter')?.value || '';
+    const itemQ = (document.getElementById('encyclopediaItemFilter')?.value || '').trim().toLowerCase();
+    const sort = document.getElementById('encyclopediaSort')?.value || 'popular';
+
+    let list = ENCYCLOPEDIA_SAMPLE.map((lo, idx) => ({ lo, idx }));
+
+    if (q) list = list.filter(({ lo }) => lo.name.toLowerCase().includes(q));
+    if (slot) list = list.filter(({ lo }) => !!(lo.equipment && lo.equipment[slot]));
+    if (itemQ) {
+        list = list.filter(({ lo }) => {
+            const all = [...Object.values(lo.equipment || {}), ...(lo.inventory || [])];
+            return all.some(n => n && n.toLowerCase().includes(itemQ));
+        });
+    }
+
+    if (sort === 'popular') list.sort((a, b) => b.lo.imports - a.lo.imports);
+    else if (sort === 'recent') list.sort((a, b) => (a.lo.created_at < b.lo.created_at ? 1 : -1));
+    else if (sort === 'name') list.sort((a, b) => a.lo.name.localeCompare(b.lo.name));
+
+    renderEncyclopedia(list);
+}
+
+function initLoadoutEncyclopedia() {
+    const grid = document.getElementById('encyclopediaGrid');
+    if (!grid) return;
+    applyEncyclopediaFilters();
+    let debounceTimer = null;
+    const debouncedApply = () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(applyEncyclopediaFilters, 150);
+    };
+    document.getElementById('encyclopediaSearchInput')?.addEventListener('input', debouncedApply);
+    document.getElementById('encyclopediaItemFilter')?.addEventListener('input', debouncedApply);
+    document.getElementById('encyclopediaSlotFilter')?.addEventListener('change', applyEncyclopediaFilters);
+    document.getElementById('encyclopediaSort')?.addEventListener('change', applyEncyclopediaFilters);
+}
+
+function initLoadoutMineTab() {
+    document.getElementById('loadoutRefreshLocalBtn')?.addEventListener('click', loadLocalLoadouts);
 }
 
 /* ===== SETTINGS PAGE: Central API + Discord Webhook ===== */
@@ -1221,20 +1585,6 @@ function initApp() {
         el.addEventListener('click', () => goToPage(el.dataset.page));
     });
 
-    // timers
-    const timerGridFull = document.getElementById('timerGridFull');
-    const timerNames = ['Numpad 1 · Teleblock', 'Numpad 2 · Vengeance', 'Numpad 3 · Freeze', 'Numpad 4 · Recoil', 'Numpad 5 · Spec Regen', 'Numpad 6 · Antifire'];
-    const durations = [150, 300, 20, 180, 45, 120];
-    timerNames.forEach((name, idx) => {
-        const id = 'fring' + idx,
-            txtId = 'fringtxt' + idx;
-        const card = document.createElement('div');
-        card.className = 'timer-card';
-        card.innerHTML = `<div class="timer-ring"><svg width="64" height="64" viewBox="0 0 64 64"><circle class="bg" cx="32" cy="32" r="27" fill="none" stroke-width="4"/><circle class="fg" id="${id}" cx="32" cy="32" r="27" fill="none" stroke-width="4" stroke-dasharray="169.6" stroke-dashoffset="0"/></svg><div class="label" id="${txtId}">--:--</div></div><div class="timer-info"><div class="n">${name}</div><div class="btns"><button>▶</button><button>↻</button></div></div>`;
-        timerGridFull.appendChild(card);
-        makeCountdown(id, txtId, durations[idx], Math.floor(durations[idx] * Math.random()));
-    });
-
     // custom items add/remove
     document.getElementById('addItemBtn').addEventListener('click', () => {
         const input = document.getElementById('newItemInput');
@@ -1260,6 +1610,7 @@ function initApp() {
     wireSettingsPanel();
     wireDebugPage();
     initApiStatusOverlay();
+    initLoadoutsPage();
 
     initProfile();
     initMarket();
@@ -1488,11 +1839,11 @@ function itemColor(name) {
 function formatGp(v) {
     const n = Number(v) || 0,
         a = Math.abs(n);
-    if (a >= 1e15) return (n / 1e15).toFixed(2) + 'Q';
-    if (a >= 1e12) return (n / 1e12).toFixed(2) + 'T';
-    if (a >= 1e9) return (n / 1e9).toFixed(2) + 'B';
-    if (a >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-    if (a >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    if (a >= 1_000_000_000_000_000) return (n / 1_000_000_000_000_000).toFixed(2) + 'Q';
+    if (a >= 1_000_000_000_000)     return (n / 1_000_000_000_000).toFixed(2) + 'T';
+    if (a >= 1_000_000_000)         return (n / 1_000_000_000).toFixed(2) + 'B';
+    if (a >= 1_000_000)             return (n / 1_000_000).toFixed(1) + 'M';
+    if (a >= 1_000)                 return (n / 1_000).toFixed(1) + 'K';
     return Math.round(n).toString();
 }
 
@@ -1501,6 +1852,27 @@ function parseSaleTime(t) {
     const d = new Date(String(t).replace(' ', 'T'));
     return isNaN(d.getTime()) ? new Date() : d;
 }
+/* ===== TOASTS ===== */
+function showToast(title, body, ms) {
+    const stack = document.getElementById('toastStack');
+    if (!stack) return;
+    const el = document.createElement('div');
+    el.className = 'warden-toast';
+    el.innerHTML = `<div class="tt-title">${escapeHtml(title)}</div><div class="tt-body">${escapeHtml(body)}</div>`;
+    stack.appendChild(el);
+    setTimeout(() => {
+        el.classList.add('leaving');
+        setTimeout(() => el.remove(), 200);
+    }, ms || 6000);
+}
+
+/* main.py forwards market_alert_triggered here (see main.py handle_server_event) */
+window.wardenOnMarketAlert = function(event) {
+    const dir = event.direction === 'above' ? 'rose above' : 'fell below';
+    showToast('🔔 Price Alert', `${event.item_name} ${dir} ${formatGp(event.threshold_gp)} gp`, 8000);
+    if (document.querySelector('.page.active')?.dataset.page === 'market') loadMarketAlerts();
+};
+
 async function initMarket() {
     const api = window.pywebview && window.pywebview.api;
     if (api && typeof api.get_market_items === 'function') {
@@ -1561,7 +1933,87 @@ async function initMarket() {
         renderList('');
         await selectItem(MARKET_CATALOG[0]);
     }
+    populateLoadoutItemDatalist();
+    wireMarketAlertBar();
 }
+
+/* Loadouts page item picker (see initLoadoutsPage / openItemPicker)
+   pulls from this exact same list, so item names available there
+   always match what's actually searchable/tradeable on the Market
+   page -- one source of truth (server /market/items). */
+function populateLoadoutItemDatalist() {
+    const dl = document.getElementById('loadoutItemDatalist');
+    if (!dl || !MARKET_CATALOG.length) return;
+    dl.innerHTML = MARKET_CATALOG.map(it => `<option value="${escapeHtml(it.name)}">`).join('');
+}
+
+/* ===== MARKET PAGE: price alerts ===== */
+async function loadMarketAlerts() {
+    const wrap = document.getElementById('marketAlertsList');
+    const api = window.pywebview && window.pywebview.api;
+    if (!wrap || !api || typeof api.get_market_alerts !== 'function') return;
+    let alerts = [];
+    try {
+        alerts = await api.get_market_alerts() || [];
+    } catch (err) {
+        console.error('Failed to load market alerts', err);
+        return;
+    }
+    if (!alerts.length) {
+        wrap.innerHTML = '';
+        return;
+    }
+    wrap.innerHTML = alerts.map(a => `
+      <div class="market-alert-row" data-id="${a.id}">
+        <span>${a.active ? '🔔' : '✓'}</span>
+        <span><b>${escapeHtml(a.item_name)}</b> ${a.direction === 'above' ? '≥' : '≤'} ${formatGp(a.price_gp)} gp</span>
+        <span>${a.active ? 'watching' : 'triggered'}</span>
+        <span class="maa-del" data-id="${a.id}">✕</span>
+      </div>`).join('');
+    wrap.querySelectorAll('.maa-del').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = Number(btn.dataset.id);
+            const api2 = window.pywebview && window.pywebview.api;
+            if (api2 && typeof api2.delete_market_alert === 'function') {
+                await api2.delete_market_alert(id).catch(() => {});
+                loadMarketAlerts();
+            }
+        });
+    });
+}
+
+function wireMarketAlertBar() {
+    document.getElementById('alertCreateBtn')?.addEventListener('click', async () => {
+        const noteEl = document.getElementById('alertBarNote');
+        const priceEl = document.getElementById('alertPriceInput');
+        const dirEl = document.getElementById('alertDirection');
+        const price = parseFloat((priceEl.value || '').replace(/,/g, ''));
+        if (!selectedItemId || !selectedItem) {
+            if (noteEl) noteEl.textContent = 'Select an item first';
+            return;
+        }
+        if (!price || price <= 0) {
+            if (noteEl) noteEl.textContent = 'Enter a valid price';
+            return;
+        }
+        const api = window.pywebview && window.pywebview.api;
+        if (!api || typeof api.create_market_alert !== 'function') return;
+        try {
+            const res = await api.create_market_alert(selectedItemId, selectedItem, dirEl.value, price, false);
+            if (res && res.ok) {
+                if (noteEl) noteEl.textContent = 'Alert added';
+                priceEl.value = '';
+                loadMarketAlerts();
+            } else if (noteEl) {
+                noteEl.textContent = (res && res.error) || 'Failed to add alert';
+            }
+        } catch (err) {
+            if (noteEl) noteEl.textContent = 'Failed to add alert';
+        }
+    });
+    loadMarketAlerts();
+}
+
 async function selectItem(it) {
     selectedItem = it.name;
     selectedItemId = it.item_id;
@@ -1734,7 +2186,7 @@ function renderProfileListings() {
             const row = document.createElement('div');
             row.className = 'listing-row' + (priorityItemIds.has(l.item_id) ? ' priority' : '');
             const t = l.sale_time ? parseSaleTime(l.sale_time).toTimeString().slice(0, 8) : '';
-            row.innerHTML = `<span class="li-item">${escapeHtml(l.item_name||('#'+l.item_id))}</span><span class="li-price">${formatGp(l.price_gp)} gp</span><span>${t}</span>`;
+            row.innerHTML = `<span class="li-item">${ItemImages.icon(l.item_name, 18)} ${escapeHtml(l.item_name||('#'+l.item_id))}</span><span class="li-price">${formatGp(l.price_gp)} gp</span><span>${t}</span>`;
             group.appendChild(row);
         });
         el.appendChild(group);
