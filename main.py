@@ -25,6 +25,7 @@ import time
 import base64
 import re
 import urllib.parse
+import webbrowser
 from pathlib import Path
 from typing import Any
 
@@ -441,6 +442,37 @@ class Api:
         except Exception as err:
             self.log.warning("delete_market_alert failed", exc_info=True)
             return {"ok": False, "error": str(err)}
+
+    # -- donate page -------------------------------------------------------
+    def get_donate_info(self) -> dict[str, Any]:
+        """Donation methods -- always fetched fresh from the server
+        (server/donate.py) rather than cached/bundled client-side, so
+        it can't be tampered with by editing a local build (see that
+        module's docstring)."""
+        http_base = self._http_base()
+        if not http_base:
+            return {"ok": False, "error": "No API endpoint configured"}
+        try:
+            data = http_get_json(http_base, "/donate/info")
+            return {"ok": True, **(data if isinstance(data, dict) else {})}
+        except Exception as err:
+            self.log.warning("get_donate_info failed against %s", http_base, exc_info=True)
+            return {"ok": False, "error": str(err)}
+
+    def open_external_url(self, url: str) -> dict[str, Any]:
+        """Opens a link in the user's actual default browser -- used for
+        things like the Stripe donation link, since a pywebview window
+        has no business hosting a real payment checkout page itself.
+        Restricted to http(s) only so this can't be turned into a
+        generic "run whatever URI scheme you like" primitive."""
+        try:
+            parsed = urllib.parse.urlparse(url)
+        except ValueError:
+            return {"ok": False, "error": "Invalid URL"}
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return {"ok": False, "error": "Only http(s) links can be opened"}
+        webbrowser.open(url, new=2)
+        return {"ok": True}
 
     # -- window chrome (frameless window; see ui/app.html .winctl) ------
     def minimize_window(self) -> None:

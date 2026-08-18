@@ -1098,6 +1098,158 @@ function initLoadoutMineTab() {
 }
 
 /* ===== SETTINGS PAGE: Central API + Discord Webhook ===== */
+/* ===== DONATE PAGE =====
+   Everything shown here comes from the server (GET /donate/info --
+   see server/donate.py) rather than being hardcoded client-side, so a
+   modified/decompiled build can't be used to redirect donations --
+   the client has no path to change what's displayed. Fetched fresh
+   each time the page is opened; not cached, since it's low-traffic
+   and the whole point is that it stays current. */
+function copyToClipboard(text, btnEl) {
+    const done = () => {
+        if (!btnEl) return;
+        const orig = btnEl.textContent;
+        btnEl.textContent = '✓ Copied';
+        btnEl.classList.add('copied');
+        setTimeout(() => {
+            btnEl.textContent = orig;
+            btnEl.classList.remove('copied');
+        }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => {
+            fallbackCopy(text); done();
+        });
+    } else {
+        fallbackCopy(text); done();
+    }
+}
+function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) { /* best effort */ }
+    ta.remove();
+}
+
+function donateRow(label, value) {
+    const row = document.createElement('div');
+    row.className = 'donate-row';
+    row.innerHTML = `<span class="dr-label">${escapeHtml(label)}</span><span class="dr-value">${escapeHtml(value)}</span><button class="dr-copy">Copy</button>`;
+    row.querySelector('.dr-copy').addEventListener('click', (e) => copyToClipboard(value, e.target));
+    return row;
+}
+
+async function initDonatePage() {
+    const page = document.querySelector('.page[data-page="donate"]');
+    if (!page) return;
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || typeof api.get_donate_info !== 'function') return;
+
+    let info = null;
+    try {
+        info = await api.get_donate_info();
+    } catch (err) {
+        console.error('Failed to load donate info', err);
+    }
+
+    if (!info || !info.ok) {
+        document.getElementById('donateIntro').textContent = "Couldn't load donation info right now — check your Central API connection.";
+        document.getElementById('donateNoBenefitText').textContent = '';
+        document.getElementById('donateNoBenefit').style.display = 'none';
+        return;
+    }
+
+    document.getElementById('donateIntro').textContent = info.intro || 'Warden is free to use, but hosting it isn\'t.';
+    document.getElementById('donateNoBenefitText').textContent = info.no_benefit_note ||
+        'Donating doesn\'t unlock anything or get you any perks -- it just helps with hosting costs.';
+
+    let anyMethod = false;
+
+    // -- stripe --
+    const stripe = info.stripe || {};
+    if (stripe.enabled && stripe.payment_link) {
+        anyMethod = true;
+        const panel = document.getElementById('donateStripePanel');
+        document.getElementById('donateStripeLabel').textContent = stripe.label || 'Pay securely with a card, Apple Pay, or Google Pay.';
+        document.getElementById('donateStripeBtn').addEventListener('click', () => {
+            const api2 = window.pywebview && window.pywebview.api;
+            if (api2 && typeof api2.open_external_url === 'function') {
+                api2.open_external_url(stripe.payment_link).catch(() => {});
+            }
+        });
+        panel.style.display = '';
+    }
+
+    // -- crypto --
+    const crypto = (info.crypto || []).filter(c => c && c.address);
+    if (crypto.length) {
+        anyMethod = true;
+        const panel = document.getElementById('donateCryptoPanel');
+        const list = document.getElementById('donateCryptoList');
+        list.innerHTML = '';
+        crypto.forEach(c => {
+            const label = c.network ? `${c.label} (${c.network})` : c.label;
+            list.appendChild(donateRow(label, c.address));
+        });
+        panel.style.display = '';
+    }
+
+    // -- bank transfer --
+    const bank = info.bank_transfer || {};
+    const bankFields = [
+        ['Account name', bank.account_name],
+        ['Sort code', bank.sort_code],
+        ['Account number', bank.account_number],
+        ['IBAN', bank.iban],
+    ].filter(([, v]) => v);
+    if (bank.enabled && bankFields.length) {
+        anyMethod = true;
+        const panel = document.getElementById('donateBankPanel');
+        const list = document.getElementById('donateBankList');
+        list.innerHTML = '';
+        bankFields.forEach(([label, value]) => list.appendChild(donateRow(label, value)));
+        document.getElementById('donateBankCountry').textContent = (bank.country || '').toUpperCase();
+        document.getElementById('donateBankNote').textContent = bank.reference_note || '';
+        panel.style.display = '';
+    }
+
+    // -- other links --
+    const other = (info.other_links || []).filter(o => o && o.url);
+    if (other.length) {
+        anyMethod = true;
+        const panel = document.getElementById('donateOtherPanel');
+        const list = document.getElementById('donateOtherList');
+        list.innerHTML = '';
+        other.forEach(o => {
+            const row = document.createElement('div');
+            row.className = 'donate-row';
+            row.innerHTML = `<span class="dr-label">${escapeHtml(o.label || 'Link')}</span><span class="dr-value">${escapeHtml(o.url)}</span><button class="dr-copy">Copy</button>`;
+            row.querySelector('.dr-copy').addEventListener('click', (e) => copyToClipboard(o.url, e.target));
+            list.appendChild(row);
+        });
+        panel.style.display = '';
+    }
+
+    // -- discord contact --
+    const discord = info.discord || {};
+    const discordHandle = discord.username || discord.id || '';
+    if (discordHandle) {
+        document.getElementById('donateDiscordName').textContent = discord.username
+            ? `@${discord.username}`
+            : `Discord ID: ${discord.id}`;
+        document.getElementById('donateDiscordNote').textContent = discord.note || 'Reach out any time.';
+        document.getElementById('donateDiscordCopyBtn').addEventListener('click', (e) => copyToClipboard(discordHandle, e.target));
+    } else {
+        document.getElementById('donateDiscordBody').style.display = 'none';
+    }
+
+    document.getElementById('donateEmptyNote').style.display = anyMethod ? 'none' : '';
+}
+
 function wireSettingsPanel() {
     const api = window.pywebview && window.pywebview.api;
 
@@ -1611,6 +1763,7 @@ function initApp() {
     wireDebugPage();
     initApiStatusOverlay();
     initLoadoutsPage();
+    initDonatePage();
 
     initProfile();
     initMarket();
@@ -1839,11 +1992,11 @@ function itemColor(name) {
 function formatGp(v) {
     const n = Number(v) || 0,
         a = Math.abs(n);
-    if (a >= 1_000_000_000_000_000) return (n / 1_000_000_000_000_000).toFixed(2) + 'Q';
-    if (a >= 1_000_000_000_000)     return (n / 1_000_000_000_000).toFixed(2) + 'T';
-    if (a >= 1_000_000_000)         return (n / 1_000_000_000).toFixed(2) + 'B';
-    if (a >= 1_000_000)             return (n / 1_000_000).toFixed(1) + 'M';
-    if (a >= 1_000)                 return (n / 1_000).toFixed(1) + 'K';
+    if (a >= 1e15) return (n / 1e15).toFixed(2) + 'Q';
+    if (a >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+    if (a >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (a >= 1e3) return (n / 1e3).toFixed(1) + 'K';
     return Math.round(n).toString();
 }
 

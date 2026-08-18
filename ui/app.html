@@ -126,6 +126,7 @@
     <div class="nav-item" data-page="items"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="18" height="14" rx="1"/><path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Custom Items</div>
     <div class="nav-item" data-page="debug"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h.01M15 9h.01M8 15c1 1.2 2.3 1.8 4 1.8s3-.6 4-1.8"/></svg>Debug <span class="sub">Tools & Logs</span></div>
     <div class="nav-item" data-page="settings"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2.1-1.2L14 3h-4l-.4 2.6a7 7 0 00-2.1 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 005 12"/></svg>Settings <span class="sub">General</span></div>
+    <div class="nav-item" data-page="donate"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20.8 8.6c0 4.5-8.8 10.4-8.8 10.4S3.2 13.1 3.2 8.6a4.6 4.6 0 018.8-1.9 4.6 4.6 0 018.8 1.9z"/></svg>Donate <span class="sub">Support Warden</span></div>
     <div class="side-foot"><div class="status"><span class="dot" style="background:var(--toxic);box-shadow:0 0 8px var(--toxic);"></span>RUNNING</div><div class="meta">UPTIME 00:12:47<br>SpawnPK · Warden 3.0</div></div>
   </div>
 
@@ -481,6 +482,62 @@
       <div class="panel"><div class="panel-head"><h2><span class="dot"></span>Window Behavior</h2></div>
         <div class="event-row"><div class="switch" id="closeBehaviorSwitch"><i></i></div><div class="name">Closing the window sends it to the background<div class="sub" style="margin-top:2px;">Off: the × button fully quits Warden. On: it hides to the tray and keeps receiving events/notifications — reopen from the tray icon.</div></div></div>
       </div>
+    </div>
+
+    <!-- DONATE -->
+    <div class="page" data-page="donate">
+      <div class="donate-hero">
+        <div class="donate-hero-icon">♥</div>
+        <h1>Support Warden</h1>
+        <p id="donateIntro">Loading…</p>
+      </div>
+
+      <div class="donate-no-benefit" id="donateNoBenefit">
+        <span class="dnb-icon">ⓘ</span>
+        <span id="donateNoBenefitText">Loading…</span>
+      </div>
+
+      <div class="donate-grid">
+        <div class="panel donate-panel" id="donateCryptoPanel" style="display:none;">
+          <div class="panel-head"><h2><span class="dot"></span>Crypto</h2><span style="font-size:9px;color:var(--steel-dim);letter-spacing:1px;">VIA KRAKEN</span></div>
+          <div class="donate-crypto-list" id="donateCryptoList"></div>
+        </div>
+
+        <div class="panel donate-panel" id="donateStripePanel" style="display:none;">
+          <div class="panel-head"><h2><span class="dot"></span>Card / Digital Wallet</h2><span style="font-size:9px;color:var(--steel-dim);letter-spacing:1px;">VIA STRIPE</span></div>
+          <div class="donate-stripe-body">
+            <p id="donateStripeLabel" style="font-size:11.5px;color:var(--steel-dim);margin:0 0 12px;">Pay securely with a card, Apple Pay, or Google Pay.</p>
+            <button class="primary donate-stripe-btn" id="donateStripeBtn">Donate via Stripe ↗</button>
+          </div>
+        </div>
+
+        <div class="panel donate-panel" id="donateBankPanel" style="display:none;">
+          <div class="panel-head"><h2><span class="dot"></span>Bank Transfer</h2><span style="font-size:9px;color:var(--steel-dim);letter-spacing:1px;" id="donateBankCountry"></span></div>
+          <div class="donate-bank-list" id="donateBankList"></div>
+          <div class="donate-bank-note" id="donateBankNote"></div>
+        </div>
+
+        <div class="panel donate-panel" id="donateOtherPanel" style="display:none;">
+          <div class="panel-head"><h2><span class="dot"></span>Other Ways to Give</h2></div>
+          <div class="donate-other-list" id="donateOtherList"></div>
+        </div>
+
+        <div class="panel donate-panel donate-discord-panel">
+          <div class="panel-head"><h2><span class="dot"></span>Get in Touch</h2></div>
+          <div class="donate-discord-body" id="donateDiscordBody">
+            <div class="donate-discord-icon">
+              <svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M20.3 5.3A18 18 0 0015.6 4l-.3.6a15 15 0 014.2 1.4 16 16 0 00-14 0A15 15 0 015.7 4.6L5.4 4a18 18 0 00-4.7 1.3S-1.5 12 .3 18.5a18 18 0 005.4 2.7l.9-1.4a12 12 0 01-1.9-.9l.5-.4a13 13 0 0013.6 0l.5.4a12 12 0 01-1.9.9l.9 1.4a18 18 0 005.4-2.7C25.5 12 20.3 5.3 20.3 5.3zM8.5 15.4c-1 0-1.9-1-1.9-2.1s.8-2.1 1.9-2.1 1.9 1 1.9 2.1-.8 2.1-1.9 2.1zm7 0c-1 0-1.9-1-1.9-2.1s.8-2.1 1.9-2.1 1.9 1 1.9 2.1-.9 2.1-1.9 2.1z"/></svg>
+            </div>
+            <div>
+              <div id="donateDiscordName" style="font-size:13px;font-weight:700;color:var(--steel);">Loading…</div>
+              <div id="donateDiscordNote" style="font-size:11px;color:var(--steel-dim);margin-top:3px;"></div>
+            </div>
+            <button class="btn-sm" id="donateDiscordCopyBtn" style="margin-left:auto;">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="donate-empty-note" id="donateEmptyNote" style="display:none;">No donation methods are configured on the server yet.</div>
     </div>
 
   </div>
