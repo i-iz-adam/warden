@@ -2256,7 +2256,7 @@ function renderSales() {
     const body = document.getElementById('salesBody');
     body.innerHTML = '';
     if (!currentSales.length) {
-        body.innerHTML = '<tr><td colspan="5" style="color:var(--steel-dim);">No sales recorded yet</td></tr>';
+        body.innerHTML = '<tr><td colspan="6" style="color:var(--steel-dim);">No sales recorded yet</td></tr>';
         return;
     }
     currentSales.slice(0, 25).forEach(s => {
@@ -2264,7 +2264,12 @@ function renderSales() {
         const tr = document.createElement('tr');
         if (isMine) tr.classList.add('mine');
         const t = parseSaleTime(s.sale_time).toTimeString().slice(0, 8);
-        tr.innerHTML = `<td>${t}</td><td>${s.seller||'—'}</td><td>${s.buyer||'—'}</td><td>${s.amount||1}</td><td class="c-amber">${formatGp(s.price_gp)}</td>`;
+        const qty = s.amount || 1;
+        // price_gp is already normalized (raw price, ×100M only when
+        // currency===1) and is a PER-UNIT value -- total sale value is
+        // computed here for display only, never written back to price_gp.
+        const totalGp = s.price_gp * qty;
+        tr.innerHTML = `<td>${t}</td><td>${s.seller||'—'}</td><td>${s.buyer||'—'}</td><td>${qty}</td><td class="c-amber">${formatGp(s.price_gp)}</td><td class="c-amber">${formatGp(totalGp)}</td>`;
         body.appendChild(tr);
     });
 }
